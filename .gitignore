@@ -1,0 +1,186 @@
+# =============================================================================
+# Paths hidden by the owner
+# Set by the owner before making this repository public. Later blocks are
+# additions; they do not relax anything in this one.
+# =============================================================================
+AGENTS.md
+CLAUDE.md
+ROADMAP.md
+docs/
+design/
+audit/
+
+# Re-including a single file from an ignored directory
+# Git does not descend into an excluded directory, so `!docs/README.md` alone
+# has no effect. The directory has to be un-ignored first, then its contents
+# re-excluded:
+#     docs/
+#     !docs/
+#     docs/*
+#     !docs/README.md
+
+# =============================================================================
+# Secrets and credentials
+# =============================================================================
+.env
+.env.*
+!.env.example
+*.env
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+*.jks
+id_rsa*
+id_ed25519*
+*.gpg
+*.asc
+credentials.json
+service-account*.json
+.netrc
+.npmrc
+.pypirc
+.htpasswd
+
+# =============================================================================
+# Local tooling and agent state
+# =============================================================================
+.claude/settings.local.json
+.claude/local/
+.cursor/
+.aider*
+.continue/
+
+# =============================================================================
+# Operating system and editors
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+desktop.ini
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.netbeans
+nbproject/
+
+# =============================================================================
+# JavaScript and TypeScript build output
+# =============================================================================
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+.next/
+out/
+build/
+dist/
+.turbo/
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
+.eslintcache
+.stylelintcache
+
+# =============================================================================
+# Go build output
+# =============================================================================
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/bin/
+/tmp/
+vendor/
+go.work
+go.work.sum
+
+# =============================================================================
+# Infrastructure and container tooling
+# =============================================================================
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraformrc
+terraform.rc
+crash.log
+crash.*.log
+docker-compose.override.yml
+docker-compose.*.local.yml
+kubeconfig
+*.kubeconfig
+.helm/
+charts/**/charts/
+
+# =============================================================================
+# Local data and media
+# =============================================================================
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.sql.gz
+*.mp4
+*.webm
+*.m3u8
+*.mkv
+*.flv
+# A bare `*.ts` is deliberately absent: it would match every TypeScript source
+# file. Media segments are covered by the ignored data directory.
+
+# =============================================================================
+# Logs, coverage and test output
+# =============================================================================
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+coverage/
+.nyc_output/
+*.lcov
+playwright-report/
+test-results/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# =============================================================================
+# Scratch and temporary work
+# =============================================================================
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+.scratch/
+scratchpad/
+
+# =============================================================================
+# Lockfiles are deliberately absent from this file
+# Resolved versions are locked reproducibly, so package-lock.json,
+# pnpm-lock.yaml, yarn.lock, go.sum and Cargo.lock are committed, not ignored.
+# =============================================================================
