@@ -23,6 +23,8 @@ func newTestApp(t *testing.T, ready bool) *fiber.App {
 		Logger:       slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		Readiness:    readiness,
 		RateLimit:    directPolicy(1000),
+		Persistence:  newStubStore(true),
+		CheckTimeout: time.Second,
 		ReadTimeout:  time.Second,
 		WriteTimeout: time.Second,
 		IdleTimeout:  time.Second,

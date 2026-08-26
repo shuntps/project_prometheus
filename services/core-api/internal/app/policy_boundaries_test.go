@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/netip"
@@ -29,6 +30,9 @@ func behindProxyEnv(header string) map[string]string {
 		"NETWORK_MODE":               "behind_proxy",
 		"RATE_LIMIT_TRUSTED_PROXIES": "10.0.0.0/8",
 		"RATE_LIMIT_PROXY_HEADER":    header,
+		"DATABASE_URL":               "postgres://core_api_test:fixture-only-not-a-secret@127.0.0.1:5432/core_api_test",
+		"DATABASE_TLS_MODE":          "verify-full",
+		"DATABASE_TLS_ROOT_CERT":     "/etc/core-api/root.crt",
 	}
 }
 
@@ -47,7 +51,8 @@ func TestLoaderCanonicalisesEverySupportedProxyHeader(t *testing.T) {
 			if err := cfg.RateLimit.Validate(); err != nil {
 				t.Errorf("loader returned a policy the domain rejects: %v", err)
 			}
-			if _, err := httpapi.New(httpapi.Options{RateLimit: cfg.RateLimit}); err != nil {
+			opts := httpapi.Options{RateLimit: cfg.RateLimit, Persistence: availableStore{}, CheckTimeout: time.Second}
+			if _, err := httpapi.New(opts); err != nil {
 				t.Errorf("constructor refused a header the loader accepted: %v", err)
 			}
 		}
@@ -112,7 +117,7 @@ func TestProcessRefusesToStartWithAnInvalidPolicy(t *testing.T) {
 		RateLimit: invalid, ReadTimeout: time.Second, WriteTimeout: time.Second,
 		IdleTimeout: time.Second, ShutdownTimeout: time.Second,
 	}
-	service, err := app.New(cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	service, err := app.New(context.Background(), cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	if err == nil {
 		t.Fatal("the service started with an invalid prefix in the allowlist")
 	}

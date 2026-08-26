@@ -29,6 +29,10 @@ func mustApp(t *testing.T, opts httpapi.Options) *fiber.App {
 		opts.Readiness = &httpapi.Readiness{}
 		opts.Readiness.Set(true)
 	}
+	if opts.Persistence == nil {
+		opts.Persistence = newStubStore(true)
+	}
+	opts.CheckTimeout = time.Second
 	opts.ReadTimeout, opts.WriteTimeout, opts.IdleTimeout = time.Second, time.Second, time.Second
 	app, err := httpapi.New(opts)
 	if err != nil {
@@ -109,7 +113,8 @@ func TestConstructorRefusesAPolicyThatWouldFallBackToLibraryDefaults(t *testing.
 func TestConstructorAcceptsACompletePolicy(t *testing.T) {
 	for name, policy := range map[string]ratelimit.Policy{"direct": directPolicy(5), "behind proxy": proxyPolicy(5)} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := httpapi.New(httpapi.Options{RateLimit: policy}); err != nil {
+			opts := httpapi.Options{RateLimit: policy, Persistence: newStubStore(true), CheckTimeout: time.Second}
+			if _, err := httpapi.New(opts); err != nil {
 				t.Errorf("complete policy was refused: %v", err)
 			}
 		})

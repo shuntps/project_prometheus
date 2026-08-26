@@ -45,6 +45,7 @@ func waitForStatus(t *testing.T, url string, want int) {
 }
 
 func TestRunServesThenShutsDownGracefully(t *testing.T) {
+	dsn, host := realPostgres(t)
 	address := freeAddress(t)
 	cfg := config.Config{
 		Environment:     config.EnvDevelopment,
@@ -55,12 +56,14 @@ func TestRunServesThenShutsDownGracefully(t *testing.T) {
 		WriteTimeout:    time.Second,
 		IdleTimeout:     time.Second,
 		ShutdownTimeout: 5 * time.Second,
+		DatabaseURL:     dsnFor(t, dsn, host),
+		Database:        testSettings(),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		service, err := app.New(cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+		service, err := app.New(ctx, cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 		if err != nil {
 			done <- err
 			return

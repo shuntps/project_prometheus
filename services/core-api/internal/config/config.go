@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
 )
 
@@ -26,6 +27,8 @@ type Config struct {
 	LogLevel        string
 	HTTPAddress     string
 	RateLimit       ratelimit.Policy
+	DatabaseURL     persistence.DSN
+	Database        persistence.Settings
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	IdleTimeout     time.Duration
@@ -98,6 +101,11 @@ func Load(lookup Lookup) (Config, error) {
 	policy, rateProblems := loadRateLimit(lookup, cfg.Environment)
 	cfg.RateLimit = policy
 	problems = append(problems, rateProblems...)
+
+	dsn, database, storeProblems := loadPersistence(lookup, cfg.Environment)
+	cfg.DatabaseURL = dsn
+	cfg.Database = database
+	problems = append(problems, storeProblems...)
 
 	if len(problems) > 0 {
 		return Config{}, fmt.Errorf("%w: %s", ErrInvalid, strings.Join(problems, "; "))

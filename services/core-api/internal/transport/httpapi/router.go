@@ -11,6 +11,7 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
 
+	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
 )
 
@@ -18,6 +19,8 @@ type Options struct {
 	Logger       *slog.Logger
 	Readiness    *Readiness
 	RateLimit    ratelimit.Policy
+	Persistence  persistence.Checker
+	CheckTimeout time.Duration
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
@@ -35,6 +38,14 @@ const (
 func New(opts Options) (*fiber.App, error) {
 	if err := opts.RateLimit.Validate(); err != nil {
 		return nil, err
+	}
+	// A nil store would leave readiness reporting on nothing, which is the one
+	// shape that lets the service serve traffic with no persistence behind it.
+	if opts.Persistence == nil {
+		return nil, errors.New("http router requires a persistence checker")
+	}
+	if opts.CheckTimeout <= 0 {
+		return nil, errors.New("http router requires a positive dependency check timeout")
 	}
 
 	cfg := fiber.Config{
@@ -60,7 +71,7 @@ func New(opts Options) (*fiber.App, error) {
 	app.Use(rateLimiter(opts.RateLimit))
 
 	app.Get(livenessPath, liveHandler)
-	app.Get(readinessPath, readyHandler(opts.Readiness))
+	app.Get(readinessPath, readyHandler(opts.Readiness, opts.Persistence, opts.CheckTimeout, opts.Logger))
 
 	return app, nil
 }

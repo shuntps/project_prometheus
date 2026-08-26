@@ -30,6 +30,7 @@ func clientFrom(t *testing.T, source string) *http.Client {
 func TestDistinctPeerAddressesDoNotShareTheQuota(t *testing.T) {
 	const max = 2
 	address := freeAddress(t)
+	dsn, host := realPostgres(t)
 	cfg := config.Config{
 		Environment:     config.EnvProduction,
 		LogLevel:        "error",
@@ -39,12 +40,14 @@ func TestDistinctPeerAddressesDoNotShareTheQuota(t *testing.T) {
 		WriteTimeout:    time.Second,
 		IdleTimeout:     time.Second,
 		ShutdownTimeout: 5 * time.Second,
+		DatabaseURL:     dsnFor(t, dsn, host),
+		Database:        testSettings(),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		service, err := app.New(cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+		service, err := app.New(ctx, cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 		if err != nil {
 			done <- err
 			return
@@ -99,6 +102,7 @@ func TestUntrustedPeerBehindProxyModeCannotForgeIdentity(t *testing.T) {
 	}
 
 	address := freeAddress(t)
+	dsn, host := realPostgres(t)
 	cfg := config.Config{
 		Environment: config.EnvProduction,
 		LogLevel:    "error",
@@ -110,12 +114,14 @@ func TestUntrustedPeerBehindProxyModeCannotForgeIdentity(t *testing.T) {
 		},
 		ReadTimeout: time.Second, WriteTimeout: time.Second, IdleTimeout: time.Second,
 		ShutdownTimeout: 5 * time.Second,
+		DatabaseURL:     dsnFor(t, dsn, host),
+		Database:        testSettings(),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		service, err := app.New(cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+		service, err := app.New(ctx, cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 		if err != nil {
 			done <- err
 			return
@@ -178,7 +184,7 @@ func TestUnsupportedProxyHeaderIsRefusedAtStartup(t *testing.T) {
 		ReadTimeout: time.Second, WriteTimeout: time.Second, IdleTimeout: time.Second,
 		ShutdownTimeout: time.Second,
 	}
-	service, err := app.New(cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	service, err := app.New(context.Background(), cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	if err == nil {
 		t.Fatal("expected startup to be refused for an unsupported proxy header")
 	}

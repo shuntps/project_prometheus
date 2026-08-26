@@ -11,6 +11,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/config"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/httpapi"
 )
 
@@ -19,27 +20,55 @@ type App struct {
 	logger    *slog.Logger
 	readiness *httpapi.Readiness
 	server    *fiber.App
+	store     *postgres.Pool
 }
 
-func New(cfg config.Config, logger *slog.Logger) (*App, error) {
+// New refuses to build a service whose store cannot be reached: the connection
+// is established here, under the configured bound, not deferred to first use.
+func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, error) {
+	// Local settings are checked before an external resource is acquired, so a
+	// refusal costs no connection.
+	if err := cfg.RateLimit.Validate(); err != nil {
+		return nil, err
+	}
+	if err := cfg.Database.Validate(); err != nil {
+		return nil, err
+	}
+
+	store, err := postgres.Open(ctx, cfg.DatabaseURL, cfg.Database)
+	if err != nil {
+		return nil, err
+	}
+
 	readiness := &httpapi.Readiness{}
 	server, err := httpapi.New(httpapi.Options{
 		Logger:       logger,
 		Readiness:    readiness,
 		RateLimit:    cfg.RateLimit,
+		Persistence:  store,
+		CheckTimeout: cfg.Database.CheckTimeout,
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
 		IdleTimeout:  cfg.IdleTimeout,
 	})
 	if err != nil {
+		store.Close()
 		return nil, err
 	}
-	return &App{cfg: cfg, logger: logger, readiness: readiness, server: server}, nil
+	logger.Info("persistence connected")
+	return &App{cfg: cfg, logger: logger, readiness: readiness, server: server, store: store}, nil
 }
 
 // Run serves until ctx is cancelled. Readiness is cleared before draining so
 // traffic stops being routed here while in-flight requests finish.
 func (a *App) Run(ctx context.Context) error {
+	// The store is closed only once the server has stopped accepting and has
+	// drained, so no in-flight request loses its connection mid-handler.
+	defer func() {
+		a.store.Close()
+		a.logger.Info("persistence closed")
+	}()
+
 	listenErr := make(chan error, 1)
 	go func() {
 		a.readiness.Set(true)

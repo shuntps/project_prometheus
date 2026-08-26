@@ -10,8 +10,15 @@ import (
 	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
 )
 
+// withEnv supplies the store settings every environment requires, so a test about
+// another subject is not refused for an unrelated reason. An explicit value wins.
 func withEnv(env string, extra map[string]string) map[string]string {
-	values := map[string]string{"APP_ENV": env}
+	values := map[string]string{
+		"APP_ENV":                env,
+		"DATABASE_URL":           "postgres://core_api_test:fixture-only-not-a-secret@db.invalid:5432/core_api_test",
+		"DATABASE_TLS_MODE":      "verify-full",
+		"DATABASE_TLS_ROOT_CERT": "/etc/core-api/root.crt",
+	}
 	for k, v := range extra {
 		values[k] = v
 	}
