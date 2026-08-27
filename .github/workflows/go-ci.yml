@@ -53,11 +53,14 @@ jobs:
         timeout-minutes: 10
         run: go vet ./...
 
-      - name: Build both binaries
+      # Every command the module actually contains is built, so a command added
+      # later is covered without this file naming it.
+      - name: Build every command
         timeout-minutes: 10
         run: |
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "${RUNNER_TEMP}/core-api" ./cmd/api
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "${RUNNER_TEMP}/core-api-migrate" ./cmd/migrate
+          mkdir -p "${RUNNER_TEMP}/bin"
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "${RUNNER_TEMP}/bin/" ./cmd/...
+          ls -1 "${RUNNER_TEMP}/bin"
 
       # The integration tests start real PostgreSQL containers through the
       # Docker daemon the hosted runner already provides.
