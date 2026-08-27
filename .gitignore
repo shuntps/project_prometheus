@@ -47,8 +47,7 @@ service-account*.json
 # =============================================================================
 # Local tooling and agent state
 # =============================================================================
-.claude/settings.local.json
-.claude/local/
+.claude/
 .cursor/
 .aider*
 .continue/
