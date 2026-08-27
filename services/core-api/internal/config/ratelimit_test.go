@@ -14,10 +14,16 @@ import (
 // another subject is not refused for an unrelated reason. An explicit value wins.
 func withEnv(env string, extra map[string]string) map[string]string {
 	values := map[string]string{
-		"APP_ENV":                env,
-		"DATABASE_URL":           "postgres://core_api_test:fixture-only-not-a-secret@db.invalid:5432/core_api_test",
-		"DATABASE_TLS_MODE":      "verify-full",
-		"DATABASE_TLS_ROOT_CERT": "/etc/core-api/root.crt",
+		"APP_ENV":                    env,
+		"DATABASE_URL":               "postgres://core_api_test:fixture-only-not-a-secret@db.invalid:5432/core_api_test",
+		"DATABASE_TLS_MODE":          "verify-full",
+		"DATABASE_TLS_ROOT_CERT":     "/etc/core-api/root.crt",
+		"PASSWORD_ARGON2_MEMORY_KIB": "19456",
+		"PASSWORD_ARGON2_ITERATIONS": "2",
+		"PASSWORD_ARGON2_LANES":      "1",
+		"PASSWORD_MIN_LENGTH":        "15",
+		"SESSION_ABSOLUTE_LIFETIME":  "12h",
+		"SESSION_IDLE_LIFETIME":      "30m",
 	}
 	for k, v := range extra {
 		values[k] = v

@@ -123,6 +123,10 @@ func (p *Pool) Check(ctx context.Context) error {
 // Close blocks until every connection has been returned to the pool and closed.
 func (p *Pool) Close() { p.pool.Close() }
 
+// Unwrap exposes the pool for the migration runner, which needs a session-scoped
+// connection of its own to hold an advisory lock across several statements.
+func (p *Pool) Unwrap() *pgxpool.Pool { return p.pool }
+
 // connString rebuilds the string from the resolved destination and overrides every
 // key the driver would otherwise take from the account's home directory.
 func connString(t persistence.Target, settings persistence.Settings) string {
