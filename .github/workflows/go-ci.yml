@@ -1,0 +1,70 @@
+name: Go CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: services/core-api
+
+jobs:
+  go-checks:
+    name: Go checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The toolchain comes from the module itself, so no version is restated here.
+      - name: Set up Go from the module
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: services/core-api/go.mod
+          cache-dependency-path: services/core-api/go.sum
+
+      - name: Verify formatting
+        timeout-minutes: 5
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "these files are not formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Verify modules
+        timeout-minutes: 5
+        run: go mod verify
+
+      - name: Static analysis
+        timeout-minutes: 10
+        run: go vet ./...
+
+      - name: Build both binaries
+        timeout-minutes: 10
+        run: |
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "${RUNNER_TEMP}/core-api" ./cmd/api
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "${RUNNER_TEMP}/core-api-migrate" ./cmd/migrate
+
+      # The integration tests start real PostgreSQL containers through the
+      # Docker daemon the hosted runner already provides.
+      - name: Tests
+        timeout-minutes: 25
+        run: go test -count=1 ./...
+
+      - name: Tests with the race detector
+        timeout-minutes: 30
+        run: go test -race -count=1 ./...
