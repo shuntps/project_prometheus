@@ -29,6 +29,7 @@ type Config struct {
 	RateLimit       ratelimit.Policy
 	DatabaseURL     persistence.DSN
 	Database        persistence.Settings
+	Auth            AuthSettings
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	IdleTimeout     time.Duration
@@ -106,6 +107,10 @@ func Load(lookup Lookup) (Config, error) {
 	cfg.DatabaseURL = dsn
 	cfg.Database = database
 	problems = append(problems, storeProblems...)
+
+	authSettings, authProblems := loadAuth(lookup, cfg.Environment)
+	cfg.Auth = authSettings
+	problems = append(problems, authProblems...)
 
 	if len(problems) > 0 {
 		return Config{}, fmt.Errorf("%w: %s", ErrInvalid, strings.Join(problems, "; "))

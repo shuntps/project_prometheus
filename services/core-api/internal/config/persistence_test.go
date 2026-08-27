@@ -17,14 +17,20 @@ const (
 
 func storeEnv(env string, extra map[string]string) map[string]string {
 	values := map[string]string{
-		"APP_ENV":                env,
-		"RATE_LIMIT_MAX":         "100",
-		"RATE_LIMIT_WINDOW":      "1m",
-		"RATE_LIMIT_ALGORITHM":   "fixed_window",
-		"NETWORK_MODE":           "direct",
-		"DATABASE_URL":           validURL,
-		"DATABASE_TLS_MODE":      "verify-full",
-		"DATABASE_TLS_ROOT_CERT": "/etc/core-api/root.crt",
+		"APP_ENV":                    env,
+		"RATE_LIMIT_MAX":             "100",
+		"RATE_LIMIT_WINDOW":          "1m",
+		"RATE_LIMIT_ALGORITHM":       "fixed_window",
+		"NETWORK_MODE":               "direct",
+		"DATABASE_URL":               validURL,
+		"DATABASE_TLS_MODE":          "verify-full",
+		"DATABASE_TLS_ROOT_CERT":     "/etc/core-api/root.crt",
+		"PASSWORD_ARGON2_MEMORY_KIB": "19456",
+		"PASSWORD_ARGON2_ITERATIONS": "2",
+		"PASSWORD_ARGON2_LANES":      "1",
+		"PASSWORD_MIN_LENGTH":        "15",
+		"SESSION_ABSOLUTE_LIFETIME":  "12h",
+		"SESSION_IDLE_LIFETIME":      "30m",
 	}
 	for k, v := range extra {
 		if v == "" {
