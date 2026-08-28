@@ -12,6 +12,7 @@ import (
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/web"
 )
 
 type Environment string
@@ -26,6 +27,7 @@ type Config struct {
 	Environment     Environment
 	LogLevel        string
 	HTTPAddress     string
+	PublicOrigin    web.Origin
 	RateLimit       ratelimit.Policy
 	DatabaseURL     persistence.DSN
 	Database        persistence.Settings
@@ -108,6 +110,10 @@ func Load(lookup Lookup) (Config, error) {
 	cfg.Database = database
 	problems = append(problems, storeProblems...)
 
+	origin, originProblems := loadPublicOrigin(lookup, cfg.Environment)
+	cfg.PublicOrigin = origin
+	problems = append(problems, originProblems...)
+
 	authSettings, authProblems := loadAuth(lookup, cfg.Environment)
 	cfg.Auth = authSettings
 	problems = append(problems, authProblems...)
@@ -174,4 +180,28 @@ func isHostname(host string) bool {
 		}
 	}
 	return true
+}
+
+// loadPublicOrigin has no default: a wrong guess for the value every cross-site
+// check compares against would refuse every request or accept a foreign site.
+func loadPublicOrigin(lookup Lookup, env Environment) (web.Origin, []string) {
+	raw, present := trimmed(lookup, "PUBLIC_ORIGIN")
+	if !present {
+		return web.Origin{}, []string{"PUBLIC_ORIGIN is required"}
+	}
+	origin, err := web.ParseOrigin(raw)
+	if err != nil {
+		return web.Origin{}, []string{fmt.Sprintf("PUBLIC_ORIGIN is unusable: %s", err)}
+	}
+	// A plain-text origin is accepted only where the browser already treats the
+	// context as trustworthy, and never outside development.
+	if !origin.IsSecure() {
+		if env != EnvDevelopment {
+			return web.Origin{}, []string{"PUBLIC_ORIGIN must use https outside development"}
+		}
+		if !origin.IsLoopback() {
+			return web.Origin{}, []string{"PUBLIC_ORIGIN may use http only on a loopback host"}
+		}
+	}
+	return origin, nil
 }

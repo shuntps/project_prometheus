@@ -33,6 +33,8 @@ func TestDistinctPeerAddressesDoNotShareTheQuota(t *testing.T) {
 	dsn, host := realPostgres(t)
 	cfg := config.Config{
 		Environment:     config.EnvProduction,
+		PublicOrigin:    testPublicOrigin,
+		Auth:            testAuthSettings(),
 		LogLevel:        "error",
 		HTTPAddress:     address,
 		RateLimit:       ratelimit.Policy{Max: max, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.Direct},
@@ -104,9 +106,11 @@ func TestUntrustedPeerBehindProxyModeCannotForgeIdentity(t *testing.T) {
 	address := freeAddress(t)
 	dsn, host := realPostgres(t)
 	cfg := config.Config{
-		Environment: config.EnvProduction,
-		LogLevel:    "error",
-		HTTPAddress: address,
+		Environment:  config.EnvProduction,
+		PublicOrigin: testPublicOrigin,
+		Auth:         testAuthSettings(),
+		LogLevel:     "error",
+		HTTPAddress:  address,
 		RateLimit: ratelimit.Policy{
 			Max: max, Window: time.Hour, Algorithm: ratelimit.FixedWindow,
 			NetworkMode: ratelimit.BehindProxy, ProxyHeader: "X-Forwarded-For",
@@ -173,9 +177,11 @@ func TestUntrustedPeerBehindProxyModeCannotForgeIdentity(t *testing.T) {
 
 func TestUnsupportedProxyHeaderIsRefusedAtStartup(t *testing.T) {
 	cfg := config.Config{
-		Environment: config.EnvProduction,
-		LogLevel:    "error",
-		HTTPAddress: "127.0.0.1:0",
+		Environment:  config.EnvProduction,
+		PublicOrigin: testPublicOrigin,
+		Auth:         testAuthSettings(),
+		LogLevel:     "error",
+		HTTPAddress:  "127.0.0.1:0",
 		RateLimit: ratelimit.Policy{
 			Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow,
 			NetworkMode: ratelimit.BehindProxy, ProxyHeader: "X-Client-Ip",

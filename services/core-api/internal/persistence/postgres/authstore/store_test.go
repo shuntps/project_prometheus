@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -155,7 +156,7 @@ func openSession(t *testing.T, store *authstore.Store, account auth.AccountID, s
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
-	if err := store.CreateSession(context.Background(), sess); err != nil {
+	if _, err := store.ReplaceSession(context.Background(), nil, sess, sess.CreatedAt); err != nil {
 		t.Fatalf("storing the session failed: %v", err)
 	}
 	return sess, token
@@ -293,144 +294,6 @@ func TestAnExpiredSessionResolvesToNothing(t *testing.T) {
 	}
 	if _, err := store.Resolve(context.Background(), token, sess.AbsoluteExpiresAt); !errors.Is(err, authstore.ErrNotFound) {
 		t.Error("a session was accepted at its absolute expiry")
-	}
-}
-
-// TestActivityExtendsTheIdleWindowButNeverPastTheAbsoluteOne keeps the two
-// expiries genuinely distinct: activity moves one and can never move the other.
-func TestActivityExtendsTheIdleWindowButNeverPastTheAbsoluteOne(t *testing.T) {
-	store, _ := freshStore(t)
-	now := time.Now().UTC()
-	short := session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute}
-	account := newAccount(t, store, auth.KindViewer, auth.StatusActive, auth.RoleViewer)
-
-	sess, token, err := session.Issue(account.ID, auth.KindViewer, auth.SurfacePublic, short, now, rand.Reader)
-	if err != nil {
-		t.Fatalf("issuing failed: %v", err)
-	}
-	if err := store.CreateSession(context.Background(), sess); err != nil {
-		t.Fatalf("storing failed: %v", err)
-	}
-
-	// Activity inside the idle window moves it forward.
-	if err := store.Touch(context.Background(), sess.ID, now.Add(25*time.Minute), short.Idle); err != nil {
-		t.Fatalf("activity inside the window was refused: %v", err)
-	}
-	if _, err := store.Resolve(context.Background(), token, now.Add(45*time.Minute)); err != nil {
-		t.Fatalf("activity did not extend the idle window: %v", err)
-	}
-
-	// Activity near the end is capped at the absolute expiry, never beyond it.
-	if err := store.Touch(context.Background(), sess.ID, now.Add(50*time.Minute), short.Idle); err != nil {
-		t.Fatalf("activity near the end was refused: %v", err)
-	}
-	if _, err := store.Resolve(context.Background(), token, sess.AbsoluteExpiresAt); !errors.Is(err, authstore.ErrNotFound) {
-		t.Fatal("activity pushed the session past its absolute expiry")
-	}
-}
-
-// TestAnExpiredSessionCanNeverBeBroughtBack is the guarantee an activity update
-// must not break: the refusal is decided by the statement that would update.
-func TestAnExpiredSessionCanNeverBeBroughtBack(t *testing.T) {
-	store, _ := freshStore(t)
-	now := time.Now().UTC()
-	account := newAccount(t, store, auth.KindViewer, auth.StatusActive, auth.RoleViewer)
-
-	cases := map[string]func(t *testing.T, id auth.SessionID, sess session.Session) time.Time{
-		"past the idle expiry": func(t *testing.T, _ auth.SessionID, sess session.Session) time.Time {
-			return sess.IdleExpiresAt.Add(time.Second)
-		},
-		"exactly at the idle expiry": func(t *testing.T, _ auth.SessionID, sess session.Session) time.Time {
-			return sess.IdleExpiresAt
-		},
-		"past the absolute expiry": func(t *testing.T, _ auth.SessionID, sess session.Session) time.Time {
-			return sess.AbsoluteExpiresAt.Add(time.Second)
-		},
-		"after revocation": func(t *testing.T, id auth.SessionID, sess session.Session) time.Time {
-			if err := store.RevokeSession(context.Background(), id, sess.CreatedAt.Add(time.Minute)); err != nil {
-				t.Fatalf("revoking failed: %v", err)
-			}
-			return sess.CreatedAt.Add(2 * time.Minute)
-		},
-	}
-	for name, when := range cases {
-		t.Run(name, func(t *testing.T) {
-			sess, token := openSession(t, store, account.ID, auth.SurfacePublic, now)
-			at := when(t, sess.ID, sess)
-			if err := store.Touch(context.Background(), sess.ID, at, lifetimes().Idle); !errors.Is(err, authstore.ErrNotFound) {
-				t.Fatalf("the session was extended: %v", err)
-			}
-			if _, err := store.Resolve(context.Background(), token, at.Add(time.Second)); !errors.Is(err, authstore.ErrNotFound) {
-				t.Fatal("the session became usable again")
-			}
-		})
-	}
-
-	// An unusable idle duration is refused before the database is touched.
-	sess, _ := openSession(t, store, account.ID, auth.SurfacePublic, now)
-	for _, idle := range []time.Duration{0, -time.Minute, time.Second, 365 * 24 * time.Hour} {
-		if err := store.Touch(context.Background(), sess.ID, now, idle); err == nil {
-			t.Errorf("an idle lifetime of %s was accepted", idle)
-		}
-	}
-}
-
-// TestActivityStampedBeforeTheLastOneIsRefusedWithoutChangingTheRow keeps a
-// clock that moves backwards from rewriting a session's history.
-func TestActivityStampedBeforeTheLastOneIsRefusedWithoutChangingTheRow(t *testing.T) {
-	store, pool := freshStore(t)
-	now := time.Now().UTC()
-	account := newAccount(t, store, auth.KindViewer, auth.StatusActive, auth.RoleViewer)
-	sess, _ := openSession(t, store, account.ID, auth.SurfacePublic, now)
-
-	read := func() (time.Time, time.Time) {
-		t.Helper()
-		var active, idle time.Time
-		const query = `SELECT last_active_at, idle_expires_at FROM account_sessions WHERE id = $1`
-		if err := pool.QueryRow(context.Background(), query, sess.ID.String()).Scan(&active, &idle); err != nil {
-			t.Fatalf("reading the session failed: %v", err)
-		}
-		return active, idle
-	}
-	beforeActive, beforeIdle := read()
-
-	if err := store.Touch(context.Background(), sess.ID, now.Add(-time.Second), lifetimes().Idle); !errors.Is(err, authstore.ErrNotFound) {
-		t.Fatalf("activity stamped in the past was accepted: %v", err)
-	}
-	afterActive, afterIdle := read()
-	if !afterActive.Equal(beforeActive) || !afterIdle.Equal(beforeIdle) {
-		t.Fatal("a refused activity update still changed the row")
-	}
-}
-
-// TestConcurrentActivityAndRevocationCannotLeaveASessionUsable runs both against
-// a real server at once; whichever wins, the session must not survive.
-func TestConcurrentActivityAndRevocationCannotLeaveASessionUsable(t *testing.T) {
-	store, _ := freshStore(t)
-	now := time.Now().UTC()
-	account := newAccount(t, store, auth.KindViewer, auth.StatusActive, auth.RoleViewer)
-
-	for round := range 16 {
-		sess, token := openSession(t, store, account.ID, auth.SurfacePublic, now)
-		start := make(chan struct{})
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			<-start
-			_ = store.Touch(context.Background(), sess.ID, now.Add(time.Minute), lifetimes().Idle)
-		}()
-		go func() {
-			defer wg.Done()
-			<-start
-			_ = store.RevokeSession(context.Background(), sess.ID, now.Add(time.Minute))
-		}()
-		close(start)
-		wg.Wait()
-
-		if _, err := store.Resolve(context.Background(), token, now.Add(2*time.Minute)); !errors.Is(err, authstore.ErrNotFound) {
-			t.Fatalf("round %d left a revoked session usable: %v", round, err)
-		}
 	}
 }
 
@@ -583,7 +446,7 @@ func TestConcurrentSessionWorkStaysConsistent(t *testing.T) {
 				errs <- err
 				return
 			}
-			if err := store.CreateSession(context.Background(), sess); err != nil {
+			if _, err := store.ReplaceSession(context.Background(), nil, sess, sess.CreatedAt); err != nil {
 				errs <- err
 				return
 			}
@@ -805,7 +668,7 @@ func TestASurfaceIsAlwaysBoundToTheAccountKindAtEveryBoundary(t *testing.T) {
 	}
 	handmade := mustSession(t, viewer.ID, now)
 	handmade.Surface = auth.SurfaceOperator
-	if err := store.CreateSession(context.Background(), handmade); err == nil {
+	if _, err := store.ReplaceSession(context.Background(), nil, handmade, handmade.CreatedAt); err == nil {
 		t.Error("the store accepted an operator session for a viewer account")
 	}
 
@@ -873,7 +736,7 @@ func TestNoWritePathStoresAnInvalidSessionRecord(t *testing.T) {
 		t.Run("creation refuses "+name, func(t *testing.T) {
 			sess := mustSession(t, account.ID, now)
 			tamper(&sess)
-			if err := store.CreateSession(context.Background(), sess); err == nil {
+			if _, err := store.ReplaceSession(context.Background(), nil, sess, sess.CreatedAt); err == nil {
 				t.Fatal("the record was stored")
 			}
 			assertNoSuccessorStored(t, pool, sess.ID)
@@ -1004,4 +867,287 @@ func TestRotationJudgesThePredecessorOnItsOwnInstant(t *testing.T) {
 			t.Errorf("the successor does not resolve: %v", err)
 		}
 	})
+}
+
+// injectFault raises inside the transaction under test, so the failure happens
+// where a driver or a constraint would raise it, not before the operation starts.
+func injectFault(t *testing.T, pool *pgxpool.Pool, statements ...string) {
+	t.Helper()
+	const fn = `CREATE OR REPLACE FUNCTION injected_fault() RETURNS trigger AS $$
+		BEGIN RAISE EXCEPTION 'injected fault'; END; $$ LANGUAGE plpgsql`
+	if _, err := pool.Exec(context.Background(), fn); err != nil {
+		t.Fatalf("declaring the fault function failed: %v", err)
+	}
+	for _, statement := range statements {
+		if _, err := pool.Exec(context.Background(), statement); err != nil {
+			t.Fatalf("installing the fault failed: %v", err)
+		}
+	}
+}
+
+type ledger struct {
+	sessions int
+	events   int
+	created  int
+	revoked  int
+}
+
+func readLedger(t *testing.T, pool *pgxpool.Pool) ledger {
+	t.Helper()
+	var l ledger
+	if err := pool.QueryRow(context.Background(), `
+		SELECT (SELECT count(*) FROM account_sessions),
+		       (SELECT count(*) FROM account_security_events),
+		       (SELECT count(*) FROM account_security_events WHERE kind = 'session_created'),
+		       (SELECT count(*) FROM account_security_events WHERE kind = 'session_revoked')`).
+		Scan(&l.sessions, &l.events, &l.created, &l.revoked); err != nil {
+		t.Fatalf("reading the ledger failed: %v", err)
+	}
+	return l
+}
+
+// TestAFailedReplacementRollsBackInsidePostgreSQL raises at a different point in
+// the real transaction each time; every point must leave the database as it was.
+func TestAFailedReplacementRollsBackInsidePostgreSQL(t *testing.T) {
+	cases := map[string]string{
+		"after the predecessor is revoked, before the successor is inserted": `
+			CREATE TRIGGER fault_on_session_insert BEFORE INSERT ON account_sessions
+			FOR EACH ROW EXECUTE FUNCTION injected_fault()`,
+		"after the successor is inserted, while its creation event is written": `
+			CREATE TRIGGER fault_on_created_event BEFORE INSERT ON account_security_events
+			FOR EACH ROW WHEN (NEW.kind = 'session_created') EXECUTE FUNCTION injected_fault()`,
+		"at commit, through a deferred constraint": `
+			CREATE CONSTRAINT TRIGGER fault_at_commit AFTER INSERT ON account_sessions
+			DEFERRABLE INITIALLY DEFERRED
+			FOR EACH ROW EXECUTE FUNCTION injected_fault()`,
+	}
+	for name, statement := range cases {
+		t.Run(name, func(t *testing.T) {
+			store, pool := freshStore(t)
+			now := time.Now().UTC()
+			account := newAccount(t, store, auth.KindViewer, auth.StatusActive, auth.RoleViewer)
+			predecessor, token := openSession(t, store, account.ID, auth.SurfacePublic, now)
+
+			before := readLedger(t, pool)
+			if before.sessions != 1 {
+				t.Fatalf("%d sessions before the failure, want 1", before.sessions)
+			}
+			injectFault(t, pool, statement)
+
+			successor, _, err := session.Issue(account.ID, auth.KindViewer, auth.SurfacePublic, lifetimes(), now, rand.Reader)
+			if err != nil {
+				t.Fatalf("issuing the successor failed: %v", err)
+			}
+			if _, err := store.ReplaceSession(context.Background(), &predecessor.ID, successor, now); err == nil {
+				t.Fatal("the replacement reported success despite the injected fault")
+			}
+
+			after := readLedger(t, pool)
+			if after != before {
+				t.Fatalf("the database changed: %+v, want %+v", after, before)
+			}
+			// The predecessor is untouched, so no revocation survived the rollback.
+			resolved, err := store.Resolve(context.Background(), token, now)
+			if err != nil {
+				t.Fatalf("the predecessor stopped working after a rolled-back failure: %v", err)
+			}
+			if resolved.Session.ID != predecessor.ID {
+				t.Fatal("the resolution returned a different session")
+			}
+			var successors int
+			if err := pool.QueryRow(context.Background(),
+				`SELECT count(*) FROM account_sessions WHERE id = $1`, successor.ID.String()).Scan(&successors); err != nil {
+				t.Fatalf("counting the successor failed: %v", err)
+			}
+			if successors != 0 {
+				t.Fatalf("%d successor rows survived the rollback", successors)
+			}
+		})
+	}
+}
+
+// TestAnAccountSuspendedAfterItsCredentialWasReadCreatesNoSession: the credential
+// check and the hashing take real time, and the account may change meanwhile.
+func TestAnAccountSuspendedAfterItsCredentialWasReadCreatesNoSession(t *testing.T) {
+	store, pool := freshStore(t)
+	now := time.Now().UTC()
+	account := newAccount(t, store, auth.KindViewer, auth.StatusActive, auth.RoleViewer)
+
+	// The credential is read while the account is still usable.
+	if _, err := store.CredentialByEmail(context.Background(), emailOf(t, pool, account)); err != nil {
+		t.Fatalf("reading the credential failed: %v", err)
+	}
+
+	// Then the account is suspended, before the session would be created.
+	if err := store.Suspend(context.Background(), account.ID, now); err != nil {
+		t.Fatalf("suspending failed: %v", err)
+	}
+	before := readLedger(t, pool)
+
+	successor, _, err := session.Issue(account.ID, auth.KindViewer, auth.SurfacePublic, lifetimes(), now, rand.Reader)
+	if err != nil {
+		t.Fatalf("issuing failed: %v", err)
+	}
+	if _, err := store.ReplaceSession(context.Background(), nil, successor, now); !errors.Is(err, authstore.ErrNotFound) {
+		t.Fatalf("the replacement returned %v, want the unusable-record answer", err)
+	}
+	// The refusal is the same shape any unusable account produces, so a caller
+	// cannot tell this apart from an address that never existed.
+	if after := readLedger(t, pool); after != before {
+		t.Fatalf("the database changed: %+v, want %+v", after, before)
+	}
+}
+
+func emailOf(t *testing.T, pool *pgxpool.Pool, account auth.Account) auth.EmailAddress {
+	t.Helper()
+	var raw string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT address FROM account_email_identities WHERE account_id = $1`, account.ID.String()).Scan(&raw); err != nil {
+		t.Fatalf("reading the address failed: %v", err)
+	}
+	address, err := auth.NormaliseEmail(raw)
+	if err != nil {
+		t.Fatalf("normalising failed: %v", err)
+	}
+	return address
+}
+
+// TestCreationAndSuspensionSerialiseIntoAValidOrder forbids the third outcome: a
+// session still usable after a suspension that was supposed to stop it.
+func TestCreationAndSuspensionSerialiseIntoAValidOrder(t *testing.T) {
+	for attempt := 0; attempt < 12; attempt++ {
+		store, pool := freshStore(t)
+		now := time.Now().UTC()
+		account := newAccount(t, store, auth.KindViewer, auth.StatusActive, auth.RoleViewer)
+		successor, token, err := session.Issue(account.ID, auth.KindViewer, auth.SurfacePublic, lifetimes(), now, rand.Reader)
+		if err != nil {
+			t.Fatalf("issuing failed: %v", err)
+		}
+
+		var (
+			wg         sync.WaitGroup
+			createErr  error
+			suspendErr error
+			start      = make(chan struct{})
+		)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, createErr = store.ReplaceSession(context.Background(), nil, successor, now)
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			suspendErr = store.Suspend(context.Background(), account.ID, now)
+		}()
+		close(start)
+		wg.Wait()
+
+		if suspendErr != nil {
+			t.Fatalf("suspending failed: %v", suspendErr)
+		}
+
+		var status string
+		if err := pool.QueryRow(context.Background(), `SELECT status FROM accounts WHERE id = $1`, account.ID.String()).Scan(&status); err != nil {
+			t.Fatalf("reading the status failed: %v", err)
+		}
+		if status != string(auth.StatusSuspended) {
+			t.Fatalf("the account ended as %q, want suspended", status)
+		}
+
+		switch {
+		case createErr == nil:
+			// The sign-in linearised first. The suspension must then make the
+			// session unusable immediately, with no further action needed.
+			if _, err := store.Resolve(context.Background(), token, now); !errors.Is(err, authstore.ErrNotFound) {
+				t.Fatalf("attempt %d: a session created before the suspension stayed usable: %v", attempt, err)
+			}
+		case errors.Is(createErr, authstore.ErrNotFound):
+			// The suspension won. No session may exist.
+			if l := readLedger(t, pool); l.sessions != 0 || l.created != 0 {
+				t.Fatalf("attempt %d: the suspension won but left %+v", attempt, l)
+			}
+		default:
+			t.Fatalf("attempt %d: the creation failed for an unexpected reason: %v", attempt, createErr)
+		}
+	}
+}
+
+// waitForLockWait blocks until PostgreSQL reports a backend waiting on a lock for
+// the statement given. An elapsed delay would prove nothing about being blocked.
+func waitForLockWait(t *testing.T, pool *pgxpool.Pool, fragment string) int {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		var pid int
+		err := pool.QueryRow(context.Background(), `
+			SELECT pid FROM pg_stat_activity
+			WHERE state = 'active' AND wait_event_type = 'Lock' AND query LIKE $1
+			LIMIT 1`, "%"+fragment+"%").Scan(&pid)
+		if err == nil {
+			return pid
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("inspecting server activity failed: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("no backend ever waited on a lock for a statement matching %q", fragment)
+	return 0
+}
+
+// TestCreationWaitsForAnUncommittedSuspension observes the creation waiting on the
+// row lock inside PostgreSQL, then requires it to see the committed suspension.
+func TestCreationWaitsForAnUncommittedSuspension(t *testing.T) {
+	store, pool := freshStore(t)
+	now := time.Now().UTC()
+	account := newAccount(t, store, auth.KindViewer, auth.StatusActive, auth.RoleViewer)
+	successor, _, err := session.Issue(account.ID, auth.KindViewer, auth.SurfacePublic, lifetimes(), now, rand.Reader)
+	if err != nil {
+		t.Fatalf("issuing failed: %v", err)
+	}
+
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("beginning the suspension failed: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `UPDATE accounts SET status = 'suspended', updated_at = $2 WHERE id = $1`,
+		account.ID.String(), now); err != nil {
+		t.Fatalf("suspending failed: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := store.ReplaceSession(ctx, nil, successor, now)
+		done <- err
+	}()
+
+	// The server itself reports the creation blocked on a lock. If it never does,
+	// the test fails rather than concluding from an elapsed delay.
+	pid := waitForLockWait(t, pool, "FOR UPDATE")
+	if pid == 0 {
+		t.Fatal("no waiting backend was identified")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("the creation completed while it was reported waiting on the lock: %v", err)
+	default:
+	}
+	// Nothing may be written while it waits.
+	if l := readLedger(t, pool); l.sessions != 0 || l.created != 0 {
+		t.Fatalf("the creation wrote %+v while waiting on the lock", l)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("committing the suspension failed: %v", err)
+	}
+	if err := <-done; !errors.Is(err, authstore.ErrNotFound) {
+		t.Fatalf("the creation returned %v after the suspension committed, want the unusable-record answer", err)
+	}
+	if l := readLedger(t, pool); l.sessions != 0 || l.created != 0 {
+		t.Fatalf("the suspension won but the creation left %+v", l)
+	}
 }

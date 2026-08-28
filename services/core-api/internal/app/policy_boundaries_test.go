@@ -9,9 +9,12 @@ import (
 	"time"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/app"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/config"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/httpapi"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/web"
 )
 
 func loadWith(values map[string]string) (config.Config, error) {
@@ -23,22 +26,27 @@ func loadWith(values map[string]string) (config.Config, error) {
 
 func behindProxyEnv(header string) map[string]string {
 	return map[string]string{
-		"APP_ENV":                    "production",
-		"RATE_LIMIT_MAX":             "10",
-		"RATE_LIMIT_WINDOW":          "1m",
-		"RATE_LIMIT_ALGORITHM":       "fixed_window",
-		"NETWORK_MODE":               "behind_proxy",
-		"RATE_LIMIT_TRUSTED_PROXIES": "10.0.0.0/8",
-		"RATE_LIMIT_PROXY_HEADER":    header,
-		"DATABASE_URL":               "postgres://core_api_test:fixture-only-not-a-secret@127.0.0.1:5432/core_api_test",
-		"DATABASE_TLS_MODE":          "verify-full",
-		"DATABASE_TLS_ROOT_CERT":     "/etc/core-api/root.crt",
-		"PASSWORD_ARGON2_MEMORY_KIB": "19456",
-		"PASSWORD_ARGON2_ITERATIONS": "2",
-		"PASSWORD_ARGON2_LANES":      "1",
-		"PASSWORD_MIN_LENGTH":        "15",
-		"SESSION_ABSOLUTE_LIFETIME":  "12h",
-		"SESSION_IDLE_LIFETIME":      "30m",
+		"APP_ENV":                           "production",
+		"RATE_LIMIT_MAX":                    "10",
+		"RATE_LIMIT_WINDOW":                 "1m",
+		"RATE_LIMIT_ALGORITHM":              "fixed_window",
+		"NETWORK_MODE":                      "behind_proxy",
+		"RATE_LIMIT_TRUSTED_PROXIES":        "10.0.0.0/8",
+		"RATE_LIMIT_PROXY_HEADER":           header,
+		"DATABASE_URL":                      "postgres://core_api_test:fixture-only-not-a-secret@127.0.0.1:5432/core_api_test",
+		"DATABASE_TLS_MODE":                 "verify-full",
+		"DATABASE_TLS_ROOT_CERT":            "/etc/core-api/root.crt",
+		"PASSWORD_ARGON2_MEMORY_KIB":        "19456",
+		"PASSWORD_ARGON2_ITERATIONS":        "2",
+		"PASSWORD_ARGON2_LANES":             "1",
+		"PASSWORD_MIN_LENGTH":               "15",
+		"SESSION_ABSOLUTE_LIFETIME":         "12h",
+		"SESSION_IDLE_LIFETIME":             "30m",
+		"PUBLIC_ORIGIN":                     "https://app.example.com",
+		"AUTH_RATE_LIMIT_CLIENT_ATTEMPTS":   "10",
+		"AUTH_RATE_LIMIT_IDENTITY_ATTEMPTS": "5",
+		"AUTH_RATE_LIMIT_WINDOW":            "15m",
+		"AUTH_RATE_LIMIT_CAPACITY":          "65536",
 	}
 }
 
@@ -118,8 +126,10 @@ func TestProcessRefusesToStartWithAnInvalidPolicy(t *testing.T) {
 		NetworkMode: ratelimit.BehindProxy, ProxyHeader: "X-Forwarded-For",
 		TrustedProxies: []netip.Prefix{{}},
 	}
+	// Everything but the policy is valid, so the refusal can only come from it.
 	cfg := config.Config{
 		Environment: config.EnvProduction, LogLevel: "error", HTTPAddress: "127.0.0.1:0",
+		PublicOrigin: testPublicOrigin, Auth: testAuthSettings(),
 		RateLimit: invalid, ReadTimeout: time.Second, WriteTimeout: time.Second,
 		IdleTimeout: time.Second, ShutdownTimeout: time.Second,
 	}
@@ -140,4 +150,25 @@ func lower(s string) string {
 		}
 	}
 	return string(out)
+}
+
+// testPublicOrigin and testAuthSettings supply the posture the service refuses to
+// start without, so a test about another subject is not rejected for that reason.
+var testPublicOrigin = func() web.Origin {
+	origin, err := web.ParseOrigin("https://app.example.com")
+	if err != nil {
+		panic(err)
+	}
+	return origin
+}()
+
+func testAuthSettings() config.AuthSettings {
+	return config.AuthSettings{
+		Password: config.PasswordSettings{
+			Params: password.Params{MemoryKiB: password.FloorMemoryKiB, Iterations: password.FloorIterations, Lanes: password.FloorLanes},
+			Policy: password.Policy{MinCodePoints: password.SingleFactorMinimum},
+		},
+		Session:   session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute},
+		RateLimit: ratelimit.AuthPolicy{ClientAttempts: 10, IdentityAttempts: 5, Window: 15 * time.Minute, Capacity: ratelimit.MinAuthCapacity},
+	}
 }

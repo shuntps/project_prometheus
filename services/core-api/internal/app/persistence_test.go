@@ -26,6 +26,8 @@ func storeConfig(t *testing.T, address string, dsn persistence.DSN) config.Confi
 	t.Helper()
 	return config.Config{
 		Environment:     config.EnvDevelopment,
+		PublicOrigin:    testPublicOrigin,
+		Auth:            testAuthSettings(),
 		LogLevel:        "info",
 		HTTPAddress:     address,
 		RateLimit:       ratelimit.Policy{Max: 1000, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.Direct},

@@ -10,8 +10,11 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/config"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/httpapi"
 )
 
@@ -34,6 +37,21 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	if err := cfg.Database.Validate(); err != nil {
 		return nil, err
 	}
+	if err := cfg.Auth.Validate(); err != nil {
+		return nil, err
+	}
+	if cfg.PublicOrigin.IsZero() {
+		return nil, errors.New("the public origin is required")
+	}
+
+	hasher, err := password.NewHasher(cfg.Auth.Password.Params, cfg.Auth.Password.Policy, nil)
+	if err != nil {
+		return nil, err
+	}
+	limiter, err := ratelimit.NewAuthLimiter(cfg.Auth.RateLimit, nil)
+	if err != nil {
+		return nil, err
+	}
 
 	store, err := postgres.Open(ctx, cfg.DatabaseURL, cfg.Database)
 	if err != nil {
@@ -47,6 +65,13 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		RateLimit:    cfg.RateLimit,
 		Persistence:  store,
 		CheckTimeout: cfg.Database.CheckTimeout,
+		Auth: &httpapi.AuthOptions{
+			Store:     authstore.New(store.Unwrap()),
+			Hasher:    hasher,
+			Lifetimes: cfg.Auth.Session,
+			Origin:    cfg.PublicOrigin,
+			Limiter:   limiter,
+		},
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
 		IdleTimeout:  cfg.IdleTimeout,

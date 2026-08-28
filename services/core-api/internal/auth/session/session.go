@@ -5,6 +5,7 @@ package session
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -111,6 +112,63 @@ func (f Fingerprint) MarshalText() ([]byte, error) { return []byte(auth.Redacted
 
 func (f Fingerprint) MarshalJSON() ([]byte, error) { return []byte(`"` + auth.Redacted + `"`), nil }
 
+// CSRFTokenBytes matches the session token: the value is a bearer secret for the
+// request that carries it, so it is drawn at the same strength.
+const CSRFTokenBytes = 32
+
+// CSRFToken is the synchronizer token bound to one session. Unlike the session
+// token it is stored as issued, because the server has to hand it back.
+type CSRFToken struct {
+	raw string
+}
+
+// NewCSRFToken draws a token from the injected CSPRNG.
+func NewCSRFToken(random io.Reader) (CSRFToken, error) {
+	if random == nil {
+		random = rand.Reader
+	}
+	raw := make([]byte, CSRFTokenBytes)
+	if _, err := io.ReadFull(random, raw); err != nil {
+		return CSRFToken{}, fmt.Errorf("%w: no CSRF token could be drawn", ErrInvalid)
+	}
+	return CSRFToken{raw: base64.RawURLEncoding.EncodeToString(raw)}, nil
+}
+
+// ParseCSRFToken accepts only a value of the exact shape this package issues.
+func ParseCSRFToken(raw string) (CSRFToken, error) {
+	trimmed := strings.TrimSpace(raw)
+	decoded, err := base64.RawURLEncoding.DecodeString(trimmed)
+	if err != nil || len(decoded) != CSRFTokenBytes {
+		return CSRFToken{}, fmt.Errorf("%w: the CSRF token is not of the issued shape", ErrInvalid)
+	}
+	return CSRFToken{raw: trimmed}, nil
+}
+
+// Reveal returns the value. Only the transport that hands the token to the client
+// and the comparison that checks it back may call this.
+func (c CSRFToken) Reveal() string { return c.raw }
+
+// Equals compares in constant time, so a mismatch discloses nothing about how far
+// a forged value matched.
+func (c CSRFToken) Equals(other CSRFToken) bool {
+	if c.IsZero() || other.IsZero() {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(c.raw), []byte(other.raw)) == 1
+}
+
+func (c CSRFToken) IsZero() bool { return c.raw == "" }
+
+func (c CSRFToken) String() string { return auth.Redacted }
+
+func (c CSRFToken) GoString() string { return auth.Redacted }
+
+func (c CSRFToken) LogValue() slog.Value { return slog.StringValue(auth.Redacted) }
+
+func (c CSRFToken) MarshalText() ([]byte, error) { return []byte(auth.Redacted), nil }
+
+func (c CSRFToken) MarshalJSON() ([]byte, error) { return []byte(`"` + auth.Redacted + `"`), nil }
+
 // Lifetimes bounds how long a session may live and how long it may sit idle.
 type Lifetimes struct {
 	Absolute time.Duration
@@ -147,6 +205,7 @@ type Session struct {
 	Account           auth.AccountID
 	Surface           auth.Surface
 	Fingerprint       Fingerprint
+	CSRF              CSRFToken
 	CreatedAt         time.Time
 	LastActiveAt      time.Time
 	IdleExpiresAt     time.Time
@@ -178,6 +237,10 @@ func Issue(account auth.AccountID, kind auth.Kind, surface auth.Surface, lifetim
 	if err != nil {
 		return Session{}, Token{}, err
 	}
+	csrf, err := NewCSRFToken(random)
+	if err != nil {
+		return Session{}, Token{}, err
+	}
 
 	issued := now.UTC()
 	built := Session{
@@ -185,6 +248,7 @@ func Issue(account auth.AccountID, kind auth.Kind, surface auth.Surface, lifetim
 		Account:           account,
 		Surface:           surface,
 		Fingerprint:       token.Fingerprint(),
+		CSRF:              csrf,
 		CreatedAt:         issued,
 		LastActiveAt:      issued,
 		IdleExpiresAt:     issued.Add(lifetimes.Idle),
@@ -209,6 +273,9 @@ func (s Session) Validate(kind auth.Kind) error {
 	}
 	if s.Fingerprint.IsZero() {
 		problems = append(problems, "the token fingerprint is zero")
+	}
+	if s.CSRF.IsZero() {
+		problems = append(problems, "the CSRF token is zero")
 	}
 	if s.RevokedAt != nil || s.RotatedTo != nil {
 		problems = append(problems, "a new session may not already be revoked or rotated")
