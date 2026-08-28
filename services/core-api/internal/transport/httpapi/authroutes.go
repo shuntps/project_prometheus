@@ -269,6 +269,11 @@ func (s *authSurface) signOut(c fiber.Ctx) error {
 	if err := verifyRequestOrigin(c, s.origin); err != nil {
 		return err
 	}
+	// The shape is judged before the session is looked at, so a request no JSON
+	// client could have sent is never reported as an accomplished sign-out.
+	if err := requireJSONRequest(c); err != nil {
+		return err
+	}
 
 	token, held := sessionTokenFromRequest(c)
 	if !held {
