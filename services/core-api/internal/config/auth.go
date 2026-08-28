@@ -7,6 +7,7 @@ import (
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
 )
 
 // Development values sit exactly on the adopted floor. They are not a deployment
@@ -19,6 +20,12 @@ const (
 	devPasswordMinLength = 15
 	devSessionAbsolute   = 12 * time.Hour
 	devSessionIdle       = 30 * time.Minute
+	// Attempt allowances start deliberately low: a legitimate sign-in rarely
+	// needs several tries, and credential stuffing needs many.
+	devAuthClientAttempts   = int64(10)
+	devAuthIdentityAttempts = int64(5)
+	devAuthWindow           = 15 * time.Minute
+	devAuthCapacity         = int64(65_536)
 )
 
 // PasswordSettings is the adopted password posture. The hashing parameters are
@@ -31,8 +38,9 @@ type PasswordSettings struct {
 // AuthSettings groups every authentication value the service is allowed to run
 // with. No secret is represented here.
 type AuthSettings struct {
-	Password PasswordSettings
-	Session  session.Lifetimes
+	Password  PasswordSettings
+	Session   session.Lifetimes
+	RateLimit ratelimit.AuthPolicy
 }
 
 // Validate delegates each floor to the package that owns it, so no configuration
@@ -46,6 +54,9 @@ func (a AuthSettings) Validate() error {
 		problems = append(problems, err.Error())
 	}
 	if err := a.Session.Validate(); err != nil {
+		problems = append(problems, err.Error())
+	}
+	if err := a.RateLimit.Validate(); err != nil {
 		problems = append(problems, err.Error())
 	}
 	if len(problems) > 0 {
@@ -71,6 +82,9 @@ func loadAuth(lookup Lookup, env Environment) (AuthSettings, []string) {
 		{"PASSWORD_ARGON2_ITERATIONS", devPasswordIterations, 1, 64, new(int64)},
 		{"PASSWORD_ARGON2_LANES", devPasswordLanes, 1, 64, new(int64)},
 		{"PASSWORD_MIN_LENGTH", devPasswordMinLength, 1, password.MaxBytes, new(int64)},
+		{"AUTH_RATE_LIMIT_CLIENT_ATTEMPTS", devAuthClientAttempts, ratelimit.MinAuthAttempts, ratelimit.MaxAuthAttempts, new(int64)},
+		{"AUTH_RATE_LIMIT_IDENTITY_ATTEMPTS", devAuthIdentityAttempts, ratelimit.MinAuthAttempts, ratelimit.MaxAuthAttempts, new(int64)},
+		{"AUTH_RATE_LIMIT_CAPACITY", devAuthCapacity, ratelimit.MinAuthCapacity, ratelimit.MaxAuthCapacity, new(int64)},
 	}
 	for _, c := range counts {
 		raw, present := trimmed(lookup, c.key)
@@ -100,6 +114,7 @@ func loadAuth(lookup Lookup, env Environment) (AuthSettings, []string) {
 	}{
 		{"SESSION_ABSOLUTE_LIFETIME", devSessionAbsolute, new(time.Duration)},
 		{"SESSION_IDLE_LIFETIME", devSessionIdle, new(time.Duration)},
+		{"AUTH_RATE_LIMIT_WINDOW", devAuthWindow, new(time.Duration)},
 	}
 	for _, d := range durations {
 		if _, present := trimmed(lookup, d.key); !present && explicit {
@@ -130,6 +145,12 @@ func loadAuth(lookup Lookup, env Environment) (AuthSettings, []string) {
 		Session: session.Lifetimes{
 			Absolute: *durations[0].out,
 			Idle:     *durations[1].out,
+		},
+		RateLimit: ratelimit.AuthPolicy{
+			ClientAttempts:   int(*counts[4].out),
+			IdentityAttempts: int(*counts[5].out),
+			Window:           *durations[2].out,
+			Capacity:         int(*counts[6].out),
 		},
 	}
 	if err := settings.Validate(); err != nil {

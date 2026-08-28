@@ -173,14 +173,48 @@ func (s *Store) Suspend(ctx context.Context, account auth.AccountID, now time.Ti
 	})
 }
 
-// CreateSession stores a session. Only the fingerprint is written.
-func (s *Store) CreateSession(ctx context.Context, sess session.Session) error {
-	return s.inTx(ctx, func(tx pgx.Tx) error {
-		if err := insertSession(ctx, tx, sess); err != nil {
-			return err
+// Credential is what a login attempt needs in order to decide, and nothing more.
+type Credential struct {
+	Account  auth.AccountID
+	Kind     auth.Kind
+	Status   auth.Status
+	Password password.Encoded
+}
+
+// CredentialByEmail reads the credential registered for a login address. Keeping
+// the outward answer uniform is the caller's responsibility, in one place.
+func (s *Store) CredentialByEmail(ctx context.Context, email auth.EmailAddress) (Credential, error) {
+	if email.IsZero() {
+		return Credential{}, ErrNotFound
+	}
+	const query = `SELECT a.id, a.kind, a.status, c.encoded_hash
+		FROM account_email_identities e
+		JOIN accounts a ON a.id = e.account_id
+		JOIN account_password_credentials c ON c.account_id = a.id
+		WHERE e.address = $1`
+
+	var (
+		id      uuid.UUID
+		rawKind string
+		status  string
+		encoded string
+	)
+	if err := s.pool.QueryRow(ctx, query, email.Reveal()).Scan(&id, &rawKind, &status, &encoded); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Credential{}, ErrNotFound
 		}
-		return record(ctx, tx, "session_created", uuid.UUID(sess.Account), sessionRef(sess.ID), sess.CreatedAt)
-	})
+		return Credential{}, ErrStore
+	}
+	kind, known := auth.ParseKind(rawKind)
+	if !known {
+		return Credential{}, ErrNotFound
+	}
+	return Credential{
+		Account:  auth.AccountID(id),
+		Kind:     kind,
+		Status:   auth.Status(status),
+		Password: password.NewEncoded(encoded),
+	}, nil
 }
 
 func insertSession(ctx context.Context, tx pgx.Tx, sess session.Session) error {
@@ -193,14 +227,118 @@ func insertSession(ctx context.Context, tx pgx.Tx, sess session.Session) error {
 	}
 
 	const insert = `INSERT INTO account_sessions
-		(id, account_id, token_fingerprint, surface, created_at, last_active_at, idle_expires_at, absolute_expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+		(id, account_id, token_fingerprint, csrf_token, surface, created_at, last_active_at, idle_expires_at, absolute_expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
 	if _, err := tx.Exec(ctx, insert,
-		uuid.UUID(sess.ID), uuid.UUID(sess.Account), sess.Fingerprint.Bytes(), string(sess.Surface),
+		uuid.UUID(sess.ID), uuid.UUID(sess.Account), sess.Fingerprint.Bytes(), sess.CSRF.Reveal(), string(sess.Surface),
 		sess.CreatedAt, sess.LastActiveAt, sess.IdleExpiresAt, sess.AbsoluteExpiresAt); err != nil {
 		return classify(err)
 	}
 	return nil
+}
+
+// ReplaceSession ends the presented session and creates its replacement in one
+// transaction. The predecessor may belong to another account, and may be absent.
+func (s *Store) ReplaceSession(ctx context.Context, previous *auth.SessionID, successor session.Session, now time.Time) (Resolved, error) {
+	replaced := now.UTC()
+	var resolved Resolved
+
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		// Read Committed lets two statements of one transaction see different
+		// states, so the row lock is what serialises this against a suspension.
+		principal, err := lockedAuthority(ctx, tx, successor.Account)
+		if err != nil {
+			return err
+		}
+		if !principal.Status.CanAuthenticate() {
+			return ErrNotFound
+		}
+		// The surface is bound to the kind by insertSession below, which validates
+		// the record against the kind read inside this same locked transaction.
+		principal.Surface = successor.Surface
+
+		if previous != nil {
+			const revoke = `UPDATE account_sessions SET revoked_at = $2
+				WHERE id = $1 AND revoked_at IS NULL RETURNING account_id`
+			var owner uuid.UUID
+			switch err := tx.QueryRow(ctx, revoke, uuid.UUID(*previous), replaced).Scan(&owner); {
+			case err == nil:
+				if err := record(ctx, tx, "session_revoked", owner, sessionRef(*previous), replaced); err != nil {
+					return err
+				}
+			case errors.Is(err, pgx.ErrNoRows):
+				// Absent or already revoked: the requested outcome already holds.
+			default:
+				return ErrStore
+			}
+		}
+
+		if err := insertSession(ctx, tx, successor); err != nil {
+			return err
+		}
+		if err := record(ctx, tx, "session_created", uuid.UUID(successor.Account), sessionRef(successor.ID), successor.CreatedAt); err != nil {
+			return err
+		}
+		resolved = Resolved{Session: successor, Principal: principal}
+		return nil
+	})
+	if err != nil {
+		return Resolved{}, err
+	}
+	return resolved, nil
+}
+
+// lockedAuthority reads the account state and grants a decision depends on, under
+// a row lock so a concurrent suspension either precedes this read or waits for it.
+func lockedAuthority(ctx context.Context, tx pgx.Tx, account auth.AccountID) (auth.Principal, error) {
+	var rawKind, rawStatus string
+	if err := tx.QueryRow(ctx, `SELECT kind, status FROM accounts WHERE id = $1 FOR UPDATE`, uuid.UUID(account)).
+		Scan(&rawKind, &rawStatus); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return auth.Principal{}, ErrNotFound
+		}
+		return auth.Principal{}, ErrStore
+	}
+	kind, known := auth.ParseKind(rawKind)
+	if !known {
+		return auth.Principal{}, ErrNotFound
+	}
+	status := auth.Status(rawStatus)
+	switch status {
+	case auth.StatusPending, auth.StatusActive, auth.StatusSuspended, auth.StatusClosed:
+	default:
+		// An unknown stored status is never treated as usable.
+		return auth.Principal{}, ErrNotFound
+	}
+
+	roles, err := grantsOf(ctx, tx, account)
+	if err != nil {
+		return auth.Principal{}, err
+	}
+	return auth.Principal{Account: account, Kind: kind, Status: status, Roles: roles}, nil
+}
+
+func grantsOf(ctx context.Context, tx pgx.Tx, account auth.AccountID) ([]auth.Role, error) {
+	rows, err := tx.Query(ctx, `SELECT role FROM account_role_grants WHERE account_id = $1 ORDER BY role`, uuid.UUID(account))
+	if err != nil {
+		return nil, ErrStore
+	}
+	defer rows.Close()
+
+	var roles []auth.Role
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, ErrStore
+		}
+		if role, known := auth.ParseRole(raw); known {
+			roles = append(roles, role)
+		}
+	}
+	if rows.Err() != nil {
+		return nil, ErrStore
+	}
+	return roles, nil
 }
 
 // Resolve looks a token up by its fingerprint and rebuilds the caller's authority
@@ -208,7 +346,7 @@ func insertSession(ctx context.Context, tx pgx.Tx, sess session.Session) error {
 func (s *Store) Resolve(ctx context.Context, token session.Token, now time.Time) (Resolved, error) {
 	fingerprint := token.Fingerprint()
 
-	const query = `SELECT s.id, s.account_id, s.surface, s.created_at, s.last_active_at,
+	const query = `SELECT s.id, s.account_id, s.csrf_token, s.surface, s.created_at, s.last_active_at,
 			s.idle_expires_at, s.absolute_expires_at, s.revoked_at, s.rotated_to, a.status, a.kind
 		FROM account_sessions s
 		JOIN accounts a ON a.id = s.account_id
@@ -218,13 +356,14 @@ func (s *Store) Resolve(ctx context.Context, token session.Token, now time.Time)
 		sess      session.Session
 		id        uuid.UUID
 		accountID uuid.UUID
+		rawCSRF   string
 		surface   string
 		status    string
 		rawKind   string
 		rotatedTo *uuid.UUID
 	)
 	err := s.pool.QueryRow(ctx, query, fingerprint.Bytes()).Scan(
-		&id, &accountID, &surface, &sess.CreatedAt, &sess.LastActiveAt,
+		&id, &accountID, &rawCSRF, &surface, &sess.CreatedAt, &sess.LastActiveAt,
 		&sess.IdleExpiresAt, &sess.AbsoluteExpiresAt, &sess.RevokedAt, &rotatedTo, &status, &rawKind)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -233,10 +372,16 @@ func (s *Store) Resolve(ctx context.Context, token session.Token, now time.Time)
 		return Resolved{}, ErrStore
 	}
 
+	csrf, err := session.ParseCSRFToken(rawCSRF)
+	if err != nil {
+		return Resolved{}, ErrNotFound
+	}
+
 	sess.ID = auth.SessionID(id)
 	sess.Account = auth.AccountID(accountID)
 	sess.Surface = auth.Surface(surface)
 	sess.Fingerprint = fingerprint
+	sess.CSRF = csrf
 	if rotatedTo != nil {
 		successor := auth.SessionID(*rotatedTo)
 		sess.RotatedTo = &successor
@@ -296,34 +441,8 @@ func (s *Store) roles(ctx context.Context, account auth.AccountID) ([]auth.Role,
 	return roles, nil
 }
 
-// Touch extends the idle window of a session still usable at that instant. The
-// refusal is decided by the same statement that would update, so nothing revives.
-func (s *Store) Touch(ctx context.Context, id auth.SessionID, now time.Time, idle time.Duration) error {
-	if idle < session.MinIdle || idle > session.MaxAbsolute {
-		return fmt.Errorf("%w: the idle lifetime is not usable", auth.ErrInvalid)
-	}
-	at := now.UTC()
-
-	const update = `UPDATE account_sessions
-		SET last_active_at = $2,
-		    idle_expires_at = LEAST($2::timestamptz + $3::interval, absolute_expires_at)
-		WHERE id = $1
-		  AND revoked_at IS NULL
-		  AND rotated_to IS NULL
-		  AND idle_expires_at > $2
-		  AND absolute_expires_at > $2
-		  AND last_active_at <= $2`
-	tag, err := s.pool.Exec(ctx, update, uuid.UUID(id), at, idle)
-	if err != nil {
-		return ErrStore
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// RevokeSession stops one session immediately.
+// RevokeSession ends one session. The same statement decides and performs it, so
+// a session already revoked is reported as such rather than revoked twice.
 func (s *Store) RevokeSession(ctx context.Context, id auth.SessionID, now time.Time) error {
 	revoked := now.UTC()
 	return s.inTx(ctx, func(tx pgx.Tx) error {

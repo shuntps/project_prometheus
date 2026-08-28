@@ -21,6 +21,9 @@ type Options struct {
 	RateLimit    ratelimit.Policy
 	Persistence  persistence.Checker
 	CheckTimeout time.Duration
+	// Auth mounts the public authentication surface. When it is absent no
+	// authentication route exists at all; a partial one is refused.
+	Auth         *AuthOptions
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
@@ -65,15 +68,36 @@ func New(opts Options) (*fiber.App, error) {
 	}
 	app := fiber.New(cfg)
 
+	app.Use(stripClientRequestID)
 	app.Use(requestid.New(requestid.Config{Header: requestIDHeader}))
 	app.Use(requestLogger(opts.Logger))
 	app.Use(recover.New(recover.Config{PanicHandler: panicHandler(opts.Logger)}))
+	if opts.Auth != nil {
+		// Registered before the limiter so a refusal it decides still declares the
+		// policy, and scoped to the authentication prefix so nothing else inherits it.
+		app.Use(authPathPrefix, noStore)
+	}
 	app.Use(rateLimiter(opts.RateLimit))
 
 	app.Get(livenessPath, liveHandler)
 	app.Get(readinessPath, readyHandler(opts.Readiness, opts.Persistence, opts.CheckTimeout, opts.Logger))
 
+	if opts.Auth != nil {
+		surface, err := newAuthSurface(*opts.Auth)
+		if err != nil {
+			return nil, err
+		}
+		surface.register(app)
+	}
+
 	return app, nil
+}
+
+// stripClientRequestID discards any identifier a public client presented, so the
+// canonical one is always drawn server-side and public input is never echoed.
+func stripClientRequestID(c fiber.Ctx) error {
+	c.Request().Header.Del(requestIDHeader)
+	return c.Next()
 }
 
 // rateLimiter applies the per-instance abuse policy. Every value is set

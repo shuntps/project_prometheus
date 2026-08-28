@@ -9,6 +9,7 @@ import (
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/config"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
 )
 
 var authKeys = []string{
@@ -107,7 +108,8 @@ func TestStrongerThanTheFloorIsAccepted(t *testing.T) {
 			Params: password.Params{MemoryKiB: 47104, Iterations: 3, Lanes: 2},
 			Policy: password.Policy{MinCodePoints: 20},
 		},
-		Session: session.Lifetimes{Absolute: 8 * time.Hour, Idle: 15 * time.Minute},
+		Session:   session.Lifetimes{Absolute: 8 * time.Hour, Idle: 15 * time.Minute},
+		RateLimit: ratelimit.AuthPolicy{ClientAttempts: 10, IdentityAttempts: 5, Window: 15 * time.Minute, Capacity: 65_536},
 	}
 	if cfg.Auth != want {
 		t.Errorf("resolved %+v, want %+v", cfg.Auth, want)

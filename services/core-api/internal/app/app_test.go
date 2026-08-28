@@ -49,6 +49,8 @@ func TestRunServesThenShutsDownGracefully(t *testing.T) {
 	address := freeAddress(t)
 	cfg := config.Config{
 		Environment:     config.EnvDevelopment,
+		PublicOrigin:    testPublicOrigin,
+		Auth:            testAuthSettings(),
 		LogLevel:        "error",
 		HTTPAddress:     address,
 		RateLimit:       ratelimit.Policy{Max: 1000, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.Direct},
