@@ -71,6 +71,6 @@ type EmailIdentity struct {
 	CreatedAt  time.Time
 }
 
-// IsVerified reports proven control of the address, which is not identity
-// proofing, not age assurance and not know-your-customer verification.
+// IsVerified reports whether control of the login address has been confirmed,
+// and reports nothing else.
 func (e EmailIdentity) IsVerified() bool { return e.VerifiedAt != nil }

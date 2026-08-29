@@ -1,5 +1,5 @@
-// Package iam holds accounts, login identities and application access. It covers
-// no civil identity, age assurance, biometrics or know-your-customer material.
+// Package iam owns the operational accounts, the login identities, and the roles,
+// permissions and surfaces that decide what an account may do.
 package iam
 
 import (
@@ -69,8 +69,8 @@ func ParseAccountID(raw string) (AccountID, error) {
 	return AccountID(value), nil
 }
 
-// Account is the operational record. It carries no login address, no legal
-// identity, no age assurance and no compliance material.
+// Account is the operational record: an identifier, a kind, a status, a display
+// name and its timestamps. It carries no login address.
 type Account struct {
 	ID          AccountID
 	Kind        Kind
