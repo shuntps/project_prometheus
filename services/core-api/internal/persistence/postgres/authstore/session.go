@@ -9,15 +9,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
 // Resolved is a session and the authority its account carries right now. Status
 // and roles are read on every resolution, never carried inside the token.
 type Resolved struct {
 	Session   session.Session
-	Principal auth.Principal
+	Principal iam.Principal
 }
 
 func insertSession(ctx context.Context, tx pgx.Tx, sess session.Session) error {
@@ -42,15 +42,15 @@ func insertSession(ctx context.Context, tx pgx.Tx, sess session.Session) error {
 
 // accountOfSession discovers which account row to lock first. It is a hint, not a
 // fact: the value is re-read and compared once the session itself is locked.
-func accountOfSession(ctx context.Context, tx pgx.Tx, id auth.SessionID) (auth.AccountID, error) {
+func accountOfSession(ctx context.Context, tx pgx.Tx, id session.ID) (iam.AccountID, error) {
 	var owner uuid.UUID
 	if err := tx.QueryRow(ctx, `SELECT account_id FROM account_sessions WHERE id = $1`, uuid.UUID(id)).Scan(&owner); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return auth.AccountID{}, ErrNotFound
+			return iam.AccountID{}, ErrNotFound
 		}
-		return auth.AccountID{}, ErrStore
+		return iam.AccountID{}, ErrStore
 	}
-	return auth.AccountID(owner), nil
+	return iam.AccountID(owner), nil
 }
 
 // Resolve looks a token up by its fingerprint and rebuilds the caller's authority
@@ -89,29 +89,29 @@ func (s *Store) Resolve(ctx context.Context, token session.Token, now time.Time)
 		return Resolved{}, ErrNotFound
 	}
 
-	sess.ID = auth.SessionID(id)
-	sess.Account = auth.AccountID(accountID)
-	sess.Surface = auth.Surface(surface)
+	sess.ID = session.ID(id)
+	sess.Account = iam.AccountID(accountID)
+	sess.Surface = iam.Surface(surface)
 	sess.Fingerprint = fingerprint
 	sess.CSRF = csrf
 	if rotatedTo != nil {
-		successor := auth.SessionID(*rotatedTo)
+		successor := session.ID(*rotatedTo)
 		sess.RotatedTo = &successor
 	}
 
 	if err := sess.UsableAt(now); err != nil {
 		return Resolved{}, ErrNotFound
 	}
-	accountStatus := auth.Status(status)
+	accountStatus := iam.Status(status)
 	if !accountStatus.CanAuthenticate() {
 		return Resolved{}, ErrNotFound
 	}
-	kind, known := auth.ParseKind(rawKind)
+	kind, known := iam.ParseKind(rawKind)
 	if !known {
 		return Resolved{}, ErrNotFound
 	}
 	// A stored row whose surface the kind may not hold is refused, whatever wrote it.
-	if err := auth.ValidateSurface(kind, sess.Surface); err != nil {
+	if err := iam.ValidateSurface(kind, sess.Surface); err != nil {
 		return Resolved{}, ErrNotFound
 	}
 
@@ -121,7 +121,7 @@ func (s *Store) Resolve(ctx context.Context, token session.Token, now time.Time)
 	}
 	return Resolved{
 		Session: sess,
-		Principal: auth.Principal{
+		Principal: iam.Principal{
 			Account: sess.Account, Kind: kind, Status: accountStatus,
 			Surface: sess.Surface, Roles: roles,
 		},
@@ -130,7 +130,7 @@ func (s *Store) Resolve(ctx context.Context, token session.Token, now time.Time)
 
 // accountKind reads the kind inside the caller's transaction, so a surface rule
 // is decided against the account as it stands at that moment.
-func accountKind(ctx context.Context, tx pgx.Tx, account auth.AccountID) (auth.Kind, error) {
+func accountKind(ctx context.Context, tx pgx.Tx, account iam.AccountID) (iam.Kind, error) {
 	var raw string
 	if err := tx.QueryRow(ctx, `SELECT kind FROM accounts WHERE id = $1`, uuid.UUID(account)).Scan(&raw); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -138,9 +138,9 @@ func accountKind(ctx context.Context, tx pgx.Tx, account auth.AccountID) (auth.K
 		}
 		return "", ErrStore
 	}
-	kind, known := auth.ParseKind(raw)
+	kind, known := iam.ParseKind(raw)
 	if !known {
-		return "", fmt.Errorf("%w: the stored account kind is unknown", auth.ErrInvalid)
+		return "", fmt.Errorf("%w: the stored account kind is unknown", iam.ErrInvalid)
 	}
 	return kind, nil
 }

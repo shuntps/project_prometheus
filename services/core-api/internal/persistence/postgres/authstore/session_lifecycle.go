@@ -9,13 +9,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
 // ReplaceSession ends the presented session and creates its replacement in one
 // transaction. The predecessor may belong to another account, and may be absent.
-func (s *Store) ReplaceSession(ctx context.Context, previous *auth.SessionID, successor session.Session, now time.Time) (Resolved, error) {
+func (s *Store) ReplaceSession(ctx context.Context, previous *session.ID, successor session.Session, now time.Time) (Resolved, error) {
 	replaced := now.UTC()
 	var resolved Resolved
 
@@ -66,7 +66,7 @@ func (s *Store) ReplaceSession(ctx context.Context, previous *auth.SessionID, su
 
 // RevokeSession ends one session. The same statement decides and performs it, so
 // a session already revoked is reported as such rather than revoked twice.
-func (s *Store) RevokeSession(ctx context.Context, id auth.SessionID, now time.Time) error {
+func (s *Store) RevokeSession(ctx context.Context, id session.ID, now time.Time) error {
 	revoked := now.UTC()
 	// Sessions first, then the account through the event's foreign key: the reverse
 	// of the authorising paths, which lockedAuthority's mode is chosen to permit.
@@ -85,7 +85,7 @@ func (s *Store) RevokeSession(ctx context.Context, id auth.SessionID, now time.T
 }
 
 // RevokeAccountSessions stops every live session of one account immediately.
-func (s *Store) RevokeAccountSessions(ctx context.Context, account auth.AccountID, now time.Time) (int64, error) {
+func (s *Store) RevokeAccountSessions(ctx context.Context, account iam.AccountID, now time.Time) (int64, error) {
 	revoked := now.UTC()
 	var affected int64
 	// Same reversed order as RevokeSession, over every live session of the account.
@@ -104,15 +104,14 @@ func (s *Store) RevokeAccountSessions(ctx context.Context, account auth.AccountI
 	return affected, nil
 }
 
-// Rotate replaces a session with a successor in one transaction, so the previous
-// token stops working at the same instant the new one starts. The instant is the
-// operation's own, and the successor must have been created for it.
-func (s *Store) Rotate(ctx context.Context, previous auth.SessionID, successor session.Session, now time.Time) error {
+// Rotate replaces a session in one transaction, so the previous token stops
+// working at the instant the new one starts, on the operation's own clock.
+func (s *Store) Rotate(ctx context.Context, previous session.ID, successor session.Session, now time.Time) error {
 	// The instant comes from the operation, never from the successor: a record
 	// under a caller's control must not decide whether its predecessor is alive.
 	at := now.UTC()
 	if !successor.CreatedAt.UTC().Equal(at) {
-		return fmt.Errorf("%w: the successor was not created by this rotation", auth.ErrInvalid)
+		return fmt.Errorf("%w: the successor was not created by this rotation", iam.ErrInvalid)
 	}
 
 	return s.inTx(ctx, func(tx pgx.Tx) error {
@@ -154,11 +153,11 @@ func (s *Store) Rotate(ctx context.Context, previous auth.SessionID, successor s
 		case !at.Before(idleUntil), !at.Before(untilLimit):
 			return ErrNotFound
 		case at.Before(createdAt):
-			return fmt.Errorf("%w: the successor predates the session it replaces", auth.ErrInvalid)
-		case auth.AccountID(account) != successor.Account:
-			return fmt.Errorf("%w: the successor belongs to another account", auth.ErrInvalid)
-		case auth.Surface(surface) != successor.Surface:
-			return fmt.Errorf("%w: the successor belongs to another surface", auth.ErrInvalid)
+			return fmt.Errorf("%w: the successor predates the session it replaces", iam.ErrInvalid)
+		case iam.AccountID(account) != successor.Account:
+			return fmt.Errorf("%w: the successor belongs to another account", iam.ErrInvalid)
+		case iam.Surface(surface) != successor.Surface:
+			return fmt.Errorf("%w: the successor belongs to another surface", iam.ErrInvalid)
 		}
 
 		if err := insertSession(ctx, tx, successor); err != nil {

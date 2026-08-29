@@ -13,17 +13,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
 func lifetimes() session.Lifetimes {
 	return session.Lifetimes{Absolute: 12 * time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute}
 }
 
-func mustAccount(t *testing.T) auth.AccountID {
+func mustAccount(t *testing.T) iam.AccountID {
 	t.Helper()
-	id, err := auth.NewAccountID()
+	id, err := iam.NewAccountID()
 	if err != nil {
 		t.Fatalf("drawing an account identifier failed: %v", err)
 	}
@@ -32,7 +32,7 @@ func mustAccount(t *testing.T) auth.AccountID {
 
 func issue(t *testing.T, now time.Time) (session.Session, session.Token) {
 	t.Helper()
-	sess, token, err := session.Issue(mustAccount(t), auth.KindViewer, auth.SurfacePublic, lifetimes(), now, rand.Reader)
+	sess, token, err := session.Issue(mustAccount(t), iam.KindViewer, iam.SurfacePublic, lifetimes(), now, rand.Reader)
 	if err != nil {
 		t.Fatalf("issuing a session failed: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestAFailingRandomSourceRefusesRatherThanWeakening(t *testing.T) {
 		t.Fatalf("got %v, want a refusal when the source runs short", err)
 	}
 
-	_, _, err := session.Issue(mustAccount(t), auth.KindViewer, auth.SurfacePublic, lifetimes(), time.Now(), io.LimitReader(rand.Reader, 4))
+	_, _, err := session.Issue(mustAccount(t), iam.KindViewer, iam.SurfacePublic, lifetimes(), time.Now(), io.LimitReader(rand.Reader, 4))
 	if !errors.Is(err, session.ErrInvalid) {
 		t.Fatalf("a session was issued from a short source: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestARevokedOrRotatedSessionIsNeverUsable(t *testing.T) {
 	}
 
 	rotated := sess
-	successor, err := auth.NewSessionID()
+	successor, err := session.NewID()
 	if err != nil {
 		t.Fatalf("drawing a session identifier failed: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestLifetimesAreBoundedAndOrdered(t *testing.T) {
 			if err := l.Validate(); !errors.Is(err, session.ErrInvalid) {
 				t.Fatalf("got %v, want a refusal", err)
 			}
-			if _, _, err := session.Issue(mustAccount(t), auth.KindViewer, auth.SurfacePublic, l, time.Now(), rand.Reader); err == nil {
+			if _, _, err := session.Issue(mustAccount(t), iam.KindViewer, iam.SurfacePublic, l, time.Now(), rand.Reader); err == nil {
 				t.Fatal("a session was issued from unusable lifetimes")
 			}
 		})
@@ -238,12 +238,12 @@ func TestLifetimesAreBoundedAndOrdered(t *testing.T) {
 }
 
 func TestASessionIsAlwaysBoundToOneKnownSurface(t *testing.T) {
-	for _, surface := range []auth.Surface{"", "edge", "admin", "Operator"} {
-		if _, _, err := session.Issue(mustAccount(t), auth.KindViewer, surface, lifetimes(), time.Now(), rand.Reader); !errors.Is(err, session.ErrInvalid) {
+	for _, surface := range []iam.Surface{"", "edge", "admin", "Operator"} {
+		if _, _, err := session.Issue(mustAccount(t), iam.KindViewer, surface, lifetimes(), time.Now(), rand.Reader); !errors.Is(err, session.ErrInvalid) {
 			t.Errorf("surface %q was accepted", surface)
 		}
 	}
-	for surface, kind := range map[auth.Surface]auth.Kind{auth.SurfacePublic: auth.KindViewer, auth.SurfaceOperator: auth.KindOperator} {
+	for surface, kind := range map[iam.Surface]iam.Kind{iam.SurfacePublic: iam.KindViewer, iam.SurfaceOperator: iam.KindOperator} {
 		sess, _, err := session.Issue(mustAccount(t), kind, surface, lifetimes(), time.Now(), rand.Reader)
 		if err != nil {
 			t.Errorf("surface %q was refused: %v", surface, err)
@@ -253,7 +253,7 @@ func TestASessionIsAlwaysBoundToOneKnownSurface(t *testing.T) {
 			t.Errorf("the session settled on surface %q", sess.Surface)
 		}
 	}
-	if _, _, err := session.Issue(auth.AccountID{}, auth.KindViewer, auth.SurfacePublic, lifetimes(), time.Now(), rand.Reader); !errors.Is(err, session.ErrInvalid) {
+	if _, _, err := session.Issue(iam.AccountID{}, iam.KindViewer, iam.SurfacePublic, lifetimes(), time.Now(), rand.Reader); !errors.Is(err, session.ErrInvalid) {
 		t.Error("a session was issued for the zero account")
 	}
 }

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
 func TestACSRFTokenCarriesTheAdoptedEntropy(t *testing.T) {
@@ -83,11 +83,11 @@ func TestACSRFTokenNeverRendersItself(t *testing.T) {
 		if strings.Contains(rendered, secret) {
 			t.Errorf("%s exposed the token", name)
 		}
-		if name != "slog" && !strings.Contains(rendered, auth.Redacted) {
+		if name != "slog" && !strings.Contains(rendered, iam.Redacted) {
 			t.Errorf("%s rendered %q rather than the redaction marker", name, rendered)
 		}
 	}
-	if !strings.Contains(renderings["slog"], auth.Redacted) {
+	if !strings.Contains(renderings["slog"], iam.Redacted) {
 		t.Error("a log record did not carry the redaction marker")
 	}
 }
@@ -131,18 +131,18 @@ func TestComparisonRefusesAnyValueThatIsNotTheIssuedOne(t *testing.T) {
 }
 
 func TestIssuingBindsADistinctCSRFTokenToEachSession(t *testing.T) {
-	account, err := auth.NewAccountID()
+	account, err := iam.NewAccountID()
 	if err != nil {
 		t.Fatalf("drawing an account failed: %v", err)
 	}
 	lifetimes := session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute}
 	now := time.Unix(1_700_000_000, 0).UTC()
 
-	first, firstToken, err := session.Issue(account, auth.KindViewer, auth.SurfacePublic, lifetimes, now, nil)
+	first, firstToken, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic, lifetimes, now, nil)
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
-	second, _, err := session.Issue(account, auth.KindViewer, auth.SurfacePublic, lifetimes, now, nil)
+	second, _, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic, lifetimes, now, nil)
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
@@ -162,24 +162,24 @@ func TestIssuingBindsADistinctCSRFTokenToEachSession(t *testing.T) {
 // TestASessionWithoutACSRFTokenIsRefused keeps a record that could never be
 // protected from entering storage through any write path.
 func TestASessionWithoutACSRFTokenIsRefused(t *testing.T) {
-	account, err := auth.NewAccountID()
+	account, err := iam.NewAccountID()
 	if err != nil {
 		t.Fatalf("drawing an account failed: %v", err)
 	}
 	lifetimes := session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute}
 	now := time.Unix(1_700_000_000, 0).UTC()
 
-	valid, _, err := session.Issue(account, auth.KindViewer, auth.SurfacePublic, lifetimes, now, nil)
+	valid, _, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic, lifetimes, now, nil)
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
-	if err := valid.Validate(auth.KindViewer); err != nil {
+	if err := valid.Validate(iam.KindViewer); err != nil {
 		t.Fatalf("an issued session was refused: %v", err)
 	}
 
 	stripped := valid
 	stripped.CSRF = session.CSRFToken{}
-	if err := stripped.Validate(auth.KindViewer); err == nil {
+	if err := stripped.Validate(iam.KindViewer); err == nil {
 		t.Fatal("a session with no CSRF token was accepted")
 	}
 }
