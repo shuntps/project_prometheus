@@ -12,7 +12,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
-	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/web"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
 )
 
 // serverIDPattern is the only shape the canonical identifier may have: the 43
@@ -98,7 +98,7 @@ func TestTheCanonicalIdentifierIsAlwaysServerGenerated(t *testing.T) {
 	}
 	for name, weird := range weirdness {
 		req := httptest.NewRequest(http.MethodGet, sessionRoute, nil)
-		req.Header.Set(web.OriginHeader, publicOrigin)
+		req.Header.Set(browser.OriginHeader, publicOrigin)
 		req.Header.Set("X-Request-Id", weird)
 		res, err := s.app.Test(req, fiber.TestConfig{Timeout: 30 * time.Second, FailOnTimeout: true})
 		if err != nil {

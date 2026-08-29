@@ -11,10 +11,10 @@ import (
 	"github.com/shuntps/project_prometheus/services/core-api/internal/app"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/config"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/httpapi"
-	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/web"
 )
 
 func loadWith(values map[string]string) (config.Config, error) {
@@ -155,8 +155,8 @@ func lower(s string) string {
 
 // testPublicOrigin and testAuthSettings supply the posture the service refuses to
 // start without, so a test about another subject is not rejected for that reason.
-var testPublicOrigin = func() web.Origin {
-	origin, err := web.ParseOrigin("https://app.example.com")
+var testPublicOrigin = func() browser.Origin {
+	origin, err := browser.ParseOrigin("https://app.example.com")
 	if err != nil {
 		panic(err)
 	}

@@ -23,11 +23,11 @@ import (
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/migration"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/httpapi"
-	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/web"
 )
 
 // The image is pinned by digest so this evidence is reproducible. The credentials
@@ -140,7 +140,7 @@ func newSurface(t *testing.T, tune ...func(*httpapi.Options)) *surface {
 		t.Fatalf("applying migrations failed: %v", err)
 	}
 
-	origin, err := web.ParseOrigin(publicOrigin)
+	origin, err := browser.ParseOrigin(publicOrigin)
 	if err != nil {
 		t.Fatalf("parsing the origin failed: %v", err)
 	}
@@ -267,16 +267,16 @@ func (s *surface) send(t *testing.T, r request) *http.Response {
 		req.Header.Del(fiber.HeaderContentType)
 	}
 	if r.origin != "" {
-		req.Header.Set(web.OriginHeader, r.origin)
+		req.Header.Set(browser.OriginHeader, r.origin)
 	}
 	if r.fetchSite != "" {
-		req.Header.Set(web.FetchSiteHeader, r.fetchSite)
+		req.Header.Set(browser.FetchSiteHeader, r.fetchSite)
 	}
 	if r.cookie != "" {
-		req.AddCookie(&http.Cookie{Name: web.SessionCookieName, Value: r.cookie})
+		req.AddCookie(&http.Cookie{Name: browser.SessionCookieName, Value: r.cookie})
 	}
 	if r.csrf != "" {
-		req.Header.Set(web.CSRFHeader, r.csrf)
+		req.Header.Set(browser.CSRFHeader, r.csrf)
 	}
 	if r.requestID != "" {
 		req.Header.Set("X-Request-Id", r.requestID)
@@ -315,7 +315,7 @@ func (s *surface) signIn(t *testing.T, address, secret string) signedIn {
 		}
 		out.csrf, _ = out.view["csrf_token"].(string)
 		for _, cookie := range res.Cookies() {
-			if cookie.Name == web.SessionCookieName {
+			if cookie.Name == browser.SessionCookieName {
 				out.token = cookie.Value
 			}
 		}
@@ -334,7 +334,7 @@ func bodyOf(t *testing.T, res *http.Response) string {
 
 func sessionCookie(res *http.Response) *http.Cookie {
 	for _, cookie := range res.Cookies() {
-		if cookie.Name == web.SessionCookieName {
+		if cookie.Name == browser.SessionCookieName {
 			return cookie
 		}
 	}

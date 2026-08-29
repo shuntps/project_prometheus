@@ -8,16 +8,16 @@ import (
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/httpapi"
-	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/web"
 )
 
 // TestThePartialAuthenticationSurfaceIsRefused keeps the service from starting
 // with a surface missing any of the parts a defence depends on.
 func TestThePartialAuthenticationSurfaceIsRefused(t *testing.T) {
-	origin, err := web.ParseOrigin(publicOrigin)
+	origin, err := browser.ParseOrigin(publicOrigin)
 	if err != nil {
 		t.Fatalf("parsing the origin failed: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestThePartialAuthenticationSurfaceIsRefused(t *testing.T) {
 		"no store":      func(o *httpapi.AuthOptions) { o.Store = nil },
 		"no hasher":     func(o *httpapi.AuthOptions) { o.Hasher = nil },
 		"no limiter":    func(o *httpapi.AuthOptions) { o.Limiter = nil },
-		"no origin":     func(o *httpapi.AuthOptions) { o.Origin = web.Origin{} },
+		"no origin":     func(o *httpapi.AuthOptions) { o.Origin = browser.Origin{} },
 		"no lifetimes":  func(o *httpapi.AuthOptions) { o.Lifetimes = session.Lifetimes{} },
 		"idle too long": func(o *httpapi.AuthOptions) { o.Lifetimes.Idle = 2 * o.Lifetimes.Absolute },
 	}
