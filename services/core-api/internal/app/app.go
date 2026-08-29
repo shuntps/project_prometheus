@@ -10,18 +10,21 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/config"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/httpapi"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/httpapi/authapi"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/httpapi/healthapi"
 )
 
 type App struct {
 	cfg       config.Config
 	logger    *slog.Logger
-	readiness *httpapi.Readiness
+	readiness *healthapi.Readiness
 	server    *fiber.App
 	store     *postgres.Pool
 }
@@ -57,20 +60,44 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	if err != nil {
 		return nil, err
 	}
+	// The adapter is the one place the store's vocabulary is translated; the use
+	// cases and the transport are wired to the ports, never to the driver.
+	authTables, err := authstore.New(store.Unwrap())
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
+	repository, err := authstore.NewRepository(authTables)
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
+	signIn, err := application.NewSignIn(application.SignInOptions{
+		Repository: repository, Hasher: hasher, Limiter: limiter, Lifetimes: cfg.Auth.Session,
+	})
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
+	sessions, err := application.NewSessions(application.SessionsOptions{
+		Repository: repository, Lifetimes: cfg.Auth.Session,
+	})
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
 
-	readiness := &httpapi.Readiness{}
+	readiness := &healthapi.Readiness{}
 	server, err := httpapi.New(httpapi.Options{
 		Logger:       logger,
 		Readiness:    readiness,
 		RateLimit:    cfg.RateLimit,
 		Persistence:  store,
 		CheckTimeout: cfg.Database.CheckTimeout,
-		Auth: &httpapi.AuthOptions{
-			Store:     authstore.New(store.Unwrap()),
-			Hasher:    hasher,
-			Lifetimes: cfg.Auth.Session,
-			Origin:    cfg.PublicOrigin,
-			Limiter:   limiter,
+		Auth: &authapi.Options{
+			SignIn:   signIn,
+			Sessions: sessions,
+			Origin:   cfg.PublicOrigin,
 		},
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,

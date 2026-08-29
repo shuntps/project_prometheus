@@ -9,17 +9,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
-// RecordActivity extends the inactivity deadline of a live session and nothing
-// else. It reports whether a write happened, which is how a suppressed update is
-// told apart from a refused one.
-//
-// The permission is fixed here rather than chosen by a caller, and the decision
-// runs inside this transaction: an authority read before it could be gone since.
-func (s *Store) RecordActivity(ctx context.Context, id auth.SessionID, now time.Time, lifetimes session.Lifetimes) (bool, error) {
+// RecordActivity extends the inactivity deadline and reports whether a write
+// happened. Its permission is decided inside this transaction, never before it.
+func (s *Store) RecordActivity(ctx context.Context, id session.ID, now time.Time, lifetimes session.Lifetimes) (bool, error) {
 	at := now.UTC()
 	var written bool
 
@@ -54,14 +50,14 @@ func (s *Store) RecordActivity(ctx context.Context, id auth.SessionID, now time.
 		}
 		// The session may have been reassigned between the discovery and the lock.
 		// Deciding with the authority of another account is refused, never guessed.
-		if auth.AccountID(owner) != discovered {
+		if iam.AccountID(owner) != discovered {
 			return ErrNotFound
 		}
 		current.ID = id
 		current.Account = discovered
-		current.Surface = auth.Surface(surface)
+		current.Surface = iam.Surface(surface)
 		if rotatedTo != nil {
-			successor := auth.SessionID(*rotatedTo)
+			successor := session.ID(*rotatedTo)
 			current.RotatedTo = &successor
 		}
 
@@ -74,11 +70,11 @@ func (s *Store) RecordActivity(ctx context.Context, id auth.SessionID, now time.
 		if !principal.Status.CanAuthenticate() {
 			return ErrNotFound
 		}
-		if err := auth.ValidateSurface(principal.Kind, principal.Surface); err != nil {
+		if err := iam.ValidateSurface(principal.Kind, principal.Surface); err != nil {
 			return ErrNotFound
 		}
-		if err := auth.Authorize(principal, auth.PermissionOwnSessionRead); err != nil {
-			return fmt.Errorf("%w: the account may not renew this session", auth.ErrDenied)
+		if err := iam.Authorize(principal, iam.PermissionOwnSessionRead); err != nil {
+			return fmt.Errorf("%w: the account may not renew this session", iam.ErrDenied)
 		}
 		if !current.ActivityIsWorthPersisting(at, lifetimes) {
 			return nil

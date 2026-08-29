@@ -8,12 +8,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
 // SetPassword replaces the stored representation and records the change.
-func (s *Store) SetPassword(ctx context.Context, account auth.AccountID, encoded password.Encoded, now time.Time) error {
+func (s *Store) SetPassword(ctx context.Context, account iam.AccountID, encoded password.Encoded, now time.Time) error {
 	changed := now.UTC()
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		const upsert = `INSERT INTO account_password_credentials (account_id, encoded_hash, created_at, updated_at)
@@ -31,7 +31,7 @@ func (s *Store) SetPassword(ctx context.Context, account auth.AccountID, encoded
 }
 
 // EncodedPassword returns the stored representation for verification.
-func (s *Store) EncodedPassword(ctx context.Context, account auth.AccountID) (password.Encoded, error) {
+func (s *Store) EncodedPassword(ctx context.Context, account iam.AccountID) (password.Encoded, error) {
 	const query = `SELECT encoded_hash FROM account_password_credentials WHERE account_id = $1`
 	var raw string
 	if err := s.pool.QueryRow(ctx, query, uuid.UUID(account)).Scan(&raw); err != nil {
@@ -45,15 +45,15 @@ func (s *Store) EncodedPassword(ctx context.Context, account auth.AccountID) (pa
 
 // Credential is what a login attempt needs in order to decide, and nothing more.
 type Credential struct {
-	Account  auth.AccountID
-	Kind     auth.Kind
-	Status   auth.Status
+	Account  iam.AccountID
+	Kind     iam.Kind
+	Status   iam.Status
 	Password password.Encoded
 }
 
 // CredentialByEmail reads the credential registered for a login address. Keeping
 // the outward answer uniform is the caller's responsibility, in one place.
-func (s *Store) CredentialByEmail(ctx context.Context, email auth.EmailAddress) (Credential, error) {
+func (s *Store) CredentialByEmail(ctx context.Context, email iam.EmailAddress) (Credential, error) {
 	if email.IsZero() {
 		return Credential{}, ErrNotFound
 	}
@@ -75,14 +75,14 @@ func (s *Store) CredentialByEmail(ctx context.Context, email auth.EmailAddress) 
 		}
 		return Credential{}, ErrStore
 	}
-	kind, known := auth.ParseKind(rawKind)
+	kind, known := iam.ParseKind(rawKind)
 	if !known {
 		return Credential{}, ErrNotFound
 	}
 	return Credential{
-		Account:  auth.AccountID(id),
+		Account:  iam.AccountID(id),
 		Kind:     kind,
-		Status:   auth.Status(status),
+		Status:   iam.Status(status),
 		Password: password.NewEncoded(encoded),
 	}, nil
 }

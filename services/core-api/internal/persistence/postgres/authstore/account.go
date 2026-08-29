@@ -8,43 +8,43 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
 // NewAccount is everything needed to create one account atomically.
 type NewAccount struct {
-	Kind        auth.Kind
-	Status      auth.Status
+	Kind        iam.Kind
+	Status      iam.Status
 	DisplayName string
-	Email       auth.EmailAddress
+	Email       iam.EmailAddress
 	Password    password.Encoded
-	Roles       []auth.Role
+	Roles       []iam.Role
 }
 
 // CreateAccount writes the account, its login identity, its credential and its
 // grants in one transaction, so a half-created account can never be left behind.
-func (s *Store) CreateAccount(ctx context.Context, in NewAccount, now time.Time) (auth.Account, error) {
-	if _, known := auth.ParseKind(string(in.Kind)); !known {
-		return auth.Account{}, fmt.Errorf("%w: the account kind is unknown", auth.ErrInvalid)
+func (s *Store) CreateAccount(ctx context.Context, in NewAccount, now time.Time) (iam.Account, error) {
+	if _, known := iam.ParseKind(string(in.Kind)); !known {
+		return iam.Account{}, fmt.Errorf("%w: the account kind is unknown", iam.ErrInvalid)
 	}
 	for _, role := range in.Roles {
-		if err := auth.ValidateGrant(in.Kind, role); err != nil {
-			return auth.Account{}, err
+		if err := iam.ValidateGrant(in.Kind, role); err != nil {
+			return iam.Account{}, err
 		}
 	}
 
-	id, err := auth.NewAccountID()
+	id, err := iam.NewAccountID()
 	if err != nil {
-		return auth.Account{}, err
+		return iam.Account{}, err
 	}
 	identityID, err := uuid.NewRandom()
 	if err != nil {
-		return auth.Account{}, fmt.Errorf("%w: no identity identifier could be drawn", auth.ErrInvalid)
+		return iam.Account{}, fmt.Errorf("%w: no identity identifier could be drawn", iam.ErrInvalid)
 	}
 
 	created := now.UTC()
-	account := auth.Account{
+	account := iam.Account{
 		ID: id, Kind: in.Kind, Status: in.Status, DisplayName: in.DisplayName,
 		CreatedAt: created, UpdatedAt: created,
 	}
@@ -82,14 +82,14 @@ func (s *Store) CreateAccount(ctx context.Context, in NewAccount, now time.Time)
 		return nil
 	})
 	if err != nil {
-		return auth.Account{}, err
+		return iam.Account{}, err
 	}
 	return account, nil
 }
 
 // Suspend stops every session of the account taking effect, without rewriting
 // the session rows: resolution reads the status again on each request.
-func (s *Store) Suspend(ctx context.Context, account auth.AccountID, now time.Time) error {
+func (s *Store) Suspend(ctx context.Context, account iam.AccountID, now time.Time) error {
 	suspended := now.UTC()
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		const update = `UPDATE accounts SET status = 'suspended', updated_at = $2 WHERE id = $1`

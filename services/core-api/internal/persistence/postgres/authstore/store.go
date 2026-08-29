@@ -26,7 +26,14 @@ type Store struct {
 	pool *pgxpool.Pool
 }
 
-func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+// New refuses a missing pool: a store built on one would fail on its first query,
+// far from the wiring that produced it.
+func New(pool *pgxpool.Pool) (*Store, error) {
+	if pool == nil {
+		return nil, errors.New("the authentication store requires a connection pool")
+	}
+	return &Store{pool: pool}, nil
+}
 
 func (s *Store) inTx(ctx context.Context, body func(pgx.Tx) error) error {
 	tx, err := s.pool.Begin(ctx)
