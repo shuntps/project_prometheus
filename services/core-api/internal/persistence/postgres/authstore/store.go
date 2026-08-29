@@ -237,6 +237,19 @@ func insertSession(ctx context.Context, tx pgx.Tx, sess session.Session) error {
 	return nil
 }
 
+// accountOfSession discovers which account row to lock first. It is a hint, not a
+// fact: the value is re-read and compared once the session itself is locked.
+func accountOfSession(ctx context.Context, tx pgx.Tx, id auth.SessionID) (auth.AccountID, error) {
+	var owner uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT account_id FROM account_sessions WHERE id = $1`, uuid.UUID(id)).Scan(&owner); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return auth.AccountID{}, ErrNotFound
+		}
+		return auth.AccountID{}, ErrStore
+	}
+	return auth.AccountID(owner), nil
+}
+
 // ReplaceSession ends the presented session and creates its replacement in one
 // transaction. The predecessor may belong to another account, and may be absent.
 func (s *Store) ReplaceSession(ctx context.Context, previous *auth.SessionID, successor session.Session, now time.Time) (Resolved, error) {
@@ -292,7 +305,9 @@ func (s *Store) ReplaceSession(ctx context.Context, previous *auth.SessionID, su
 // a row lock so a concurrent suspension either precedes this read or waits for it.
 func lockedAuthority(ctx context.Context, tx pgx.Tx, account auth.AccountID) (auth.Principal, error) {
 	var rawKind, rawStatus string
-	if err := tx.QueryRow(ctx, `SELECT kind, status FROM accounts WHERE id = $1 FOR UPDATE`, uuid.UUID(account)).
+	// FOR NO KEY UPDATE, not FOR UPDATE: it must block an authority change, yet stay
+	// compatible with the FOR KEY SHARE a revocation's event foreign key takes.
+	if err := tx.QueryRow(ctx, `SELECT kind, status FROM accounts WHERE id = $1 FOR NO KEY UPDATE`, uuid.UUID(account)).
 		Scan(&rawKind, &rawStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return auth.Principal{}, ErrNotFound
@@ -318,8 +333,10 @@ func lockedAuthority(ctx context.Context, tx pgx.Tx, account auth.AccountID) (au
 	return auth.Principal{Account: account, Kind: kind, Status: status, Roles: roles}, nil
 }
 
+// grantsOf locks the rows it reads. An unlocked read would let a grant be deleted
+// between the decision and the write it authorises.
 func grantsOf(ctx context.Context, tx pgx.Tx, account auth.AccountID) ([]auth.Role, error) {
-	rows, err := tx.Query(ctx, `SELECT role FROM account_role_grants WHERE account_id = $1 ORDER BY role`, uuid.UUID(account))
+	rows, err := tx.Query(ctx, `SELECT role FROM account_role_grants WHERE account_id = $1 ORDER BY role FOR UPDATE`, uuid.UUID(account))
 	if err != nil {
 		return nil, ErrStore
 	}
@@ -339,6 +356,95 @@ func grantsOf(ctx context.Context, tx pgx.Tx, account auth.AccountID) ([]auth.Ro
 		return nil, ErrStore
 	}
 	return roles, nil
+}
+
+// RecordActivity extends the inactivity deadline of a live session and nothing
+// else. It reports whether a write happened, which is how a suppressed update is
+// told apart from a refused one.
+//
+// The permission is fixed here rather than chosen by a caller, and the decision
+// runs inside this transaction: an authority read before it could be gone since.
+func (s *Store) RecordActivity(ctx context.Context, id auth.SessionID, now time.Time, lifetimes session.Lifetimes) (bool, error) {
+	at := now.UTC()
+	var written bool
+
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		discovered, err := accountOfSession(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		// Authorising paths take the account and its grants before any session row.
+		// Revocation runs the other way; only the lock modes keep the two compatible.
+		principal, err := lockedAuthority(ctx, tx, discovered)
+		if err != nil {
+			return err
+		}
+
+		const lock = `SELECT account_id, surface, last_active_at, idle_expires_at,
+				absolute_expires_at, revoked_at, rotated_to
+			FROM account_sessions WHERE id = $1 FOR UPDATE`
+		var (
+			current   session.Session
+			owner     uuid.UUID
+			surface   string
+			rotatedTo *uuid.UUID
+		)
+		if err := tx.QueryRow(ctx, lock, uuid.UUID(id)).Scan(
+			&owner, &surface, &current.LastActiveAt, &current.IdleExpiresAt,
+			&current.AbsoluteExpiresAt, &current.RevokedAt, &rotatedTo); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return ErrStore
+		}
+		// The session may have been reassigned between the discovery and the lock.
+		// Deciding with the authority of another account is refused, never guessed.
+		if auth.AccountID(owner) != discovered {
+			return ErrNotFound
+		}
+		current.ID = id
+		current.Account = discovered
+		current.Surface = auth.Surface(surface)
+		if rotatedTo != nil {
+			successor := auth.SessionID(*rotatedTo)
+			current.RotatedTo = &successor
+		}
+
+		if err := current.UsableAt(at); err != nil {
+			return ErrNotFound
+		}
+		principal.Surface = current.Surface
+		// An account that can no longer authenticate on this surface makes the record
+		// unusable rather than the action denied, and is answered like an absent one.
+		if !principal.Status.CanAuthenticate() {
+			return ErrNotFound
+		}
+		if err := auth.ValidateSurface(principal.Kind, principal.Surface); err != nil {
+			return ErrNotFound
+		}
+		if err := auth.Authorize(principal, auth.PermissionOwnSessionRead); err != nil {
+			return fmt.Errorf("%w: the account may not renew this session", auth.ErrDenied)
+		}
+		if !current.ActivityIsWorthPersisting(at, lifetimes) {
+			return nil
+		}
+
+		const update = `UPDATE account_sessions SET last_active_at = $2, idle_expires_at = $3
+			WHERE id = $1 AND revoked_at IS NULL AND rotated_to IS NULL`
+		tag, err := tx.Exec(ctx, update, uuid.UUID(id), at, current.RenewedIdleAt(at, lifetimes))
+		if err != nil {
+			return classify(err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		written = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return written, nil
 }
 
 // Resolve looks a token up by its fingerprint and rebuilds the caller's authority
@@ -445,6 +551,8 @@ func (s *Store) roles(ctx context.Context, account auth.AccountID) ([]auth.Role,
 // a session already revoked is reported as such rather than revoked twice.
 func (s *Store) RevokeSession(ctx context.Context, id auth.SessionID, now time.Time) error {
 	revoked := now.UTC()
+	// Sessions first, then the account through the event's foreign key: the reverse
+	// of the authorising paths, which lockedAuthority's mode is chosen to permit.
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		const update = `UPDATE account_sessions SET revoked_at = $2
 			WHERE id = $1 AND revoked_at IS NULL RETURNING account_id`
@@ -463,6 +571,7 @@ func (s *Store) RevokeSession(ctx context.Context, id auth.SessionID, now time.T
 func (s *Store) RevokeAccountSessions(ctx context.Context, account auth.AccountID, now time.Time) (int64, error) {
 	revoked := now.UTC()
 	var affected int64
+	// Same reversed order as RevokeSession, over every live session of the account.
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		const update = `UPDATE account_sessions SET revoked_at = $2 WHERE account_id = $1 AND revoked_at IS NULL`
 		tag, err := tx.Exec(ctx, update, uuid.UUID(account), revoked)
@@ -490,8 +599,18 @@ func (s *Store) Rotate(ctx context.Context, previous auth.SessionID, successor s
 	}
 
 	return s.inTx(ctx, func(tx pgx.Tx) error {
-		// The predecessor is locked and read first. Nothing is written until it is
-		// established that both sessions carry the same authority.
+		// The account and its grants before the session rows, the order every
+		// authorising path uses.
+		owner, err := accountOfSession(ctx, tx, previous)
+		if err != nil {
+			return err
+		}
+		if _, err := lockedAuthority(ctx, tx, owner); err != nil {
+			return err
+		}
+
+		// Nothing is written until it is established that both sessions carry the
+		// same authority.
 		const lock = `SELECT account_id, surface, created_at, revoked_at, rotated_to,
 				idle_expires_at, absolute_expires_at
 			FROM account_sessions WHERE id = $1 FOR UPDATE`
@@ -504,9 +623,8 @@ func (s *Store) Rotate(ctx context.Context, previous auth.SessionID, successor s
 			idleUntil  time.Time
 			untilLimit time.Time
 		)
-		err := tx.QueryRow(ctx, lock, uuid.UUID(previous)).Scan(
-			&account, &surface, &createdAt, &revokedAt, &rotatedTo, &idleUntil, &untilLimit)
-		if err != nil {
+		if err := tx.QueryRow(ctx, lock, uuid.UUID(previous)).Scan(
+			&account, &surface, &createdAt, &revokedAt, &rotatedTo, &idleUntil, &untilLimit); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrNotFound
 			}

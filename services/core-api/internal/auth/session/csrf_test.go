@@ -135,7 +135,7 @@ func TestIssuingBindsADistinctCSRFTokenToEachSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("drawing an account failed: %v", err)
 	}
-	lifetimes := session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute}
+	lifetimes := session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute}
 	now := time.Unix(1_700_000_000, 0).UTC()
 
 	first, firstToken, err := session.Issue(account, auth.KindViewer, auth.SurfacePublic, lifetimes, now, nil)
@@ -166,7 +166,7 @@ func TestASessionWithoutACSRFTokenIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("drawing an account failed: %v", err)
 	}
-	lifetimes := session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute}
+	lifetimes := session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute}
 	now := time.Unix(1_700_000_000, 0).UTC()
 
 	valid, _, err := session.Issue(account, auth.KindViewer, auth.SurfacePublic, lifetimes, now, nil)

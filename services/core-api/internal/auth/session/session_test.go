@@ -18,7 +18,7 @@ import (
 )
 
 func lifetimes() session.Lifetimes {
-	return session.Lifetimes{Absolute: 12 * time.Hour, Idle: 30 * time.Minute}
+	return session.Lifetimes{Absolute: 12 * time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute}
 }
 
 func mustAccount(t *testing.T) auth.AccountID {

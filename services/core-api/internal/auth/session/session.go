@@ -173,12 +173,16 @@ func (c CSRFToken) MarshalJSON() ([]byte, error) { return []byte(`"` + auth.Reda
 type Lifetimes struct {
 	Absolute time.Duration
 	Idle     time.Duration
+	// ActivityInterval is the shortest spacing between two persisted activity
+	// updates, so a burst of user events costs one write rather than one per event.
+	ActivityInterval time.Duration
 }
 
 const (
-	MinIdle     = time.Minute
-	MinAbsolute = 5 * time.Minute
-	MaxAbsolute = 30 * 24 * time.Hour
+	MinIdle             = time.Minute
+	MinAbsolute         = 5 * time.Minute
+	MaxAbsolute         = 30 * 24 * time.Hour
+	MinActivityInterval = time.Second
 )
 
 // Validate keeps the two expiries distinct and ordered.
@@ -192,6 +196,14 @@ func (l Lifetimes) Validate() error {
 	}
 	if l.Idle >= MinIdle && l.Absolute >= MinAbsolute && l.Idle > l.Absolute {
 		problems = append(problems, "the idle lifetime must not exceed the absolute lifetime")
+	}
+	if l.ActivityInterval < MinActivityInterval {
+		problems = append(problems, fmt.Sprintf("the activity interval must be at least %s", MinActivityInterval))
+	}
+	// An interval at or above the idle lifetime would let a session expire between
+	// two updates the policy permits, which is the opposite of what it is for.
+	if l.ActivityInterval >= MinActivityInterval && l.Idle >= MinIdle && l.ActivityInterval >= l.Idle {
+		problems = append(problems, "the activity interval must be shorter than the idle lifetime")
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("%w: %s", ErrInvalid, strings.Join(problems, "; "))
@@ -313,6 +325,26 @@ func (s Session) Validate(kind auth.Kind) error {
 		return fmt.Errorf("%w: %s", ErrInvalid, strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+// RenewedIdleAt returns the inactivity deadline an accepted activity signal would
+// produce, capped by the absolute expiry, which this operation never moves.
+func (s Session) RenewedIdleAt(now time.Time, lifetimes Lifetimes) time.Time {
+	renewed := now.UTC().Add(lifetimes.Idle)
+	if renewed.After(s.AbsoluteExpiresAt) {
+		return s.AbsoluteExpiresAt
+	}
+	return renewed
+}
+
+// ActivityIsWorthPersisting keeps a burst of events from becoming a write each.
+// It also refuses an instant that would move a stamp backwards, so requests
+// observed out of order can never shorten a deadline.
+func (s Session) ActivityIsWorthPersisting(now time.Time, lifetimes Lifetimes) bool {
+	if now.UTC().Sub(s.LastActiveAt) < lifetimes.ActivityInterval {
+		return false
+	}
+	return s.RenewedIdleAt(now, lifetimes).After(s.IdleExpiresAt)
 }
 
 // UsableAt reports why a session may not be used, checking every reason rather

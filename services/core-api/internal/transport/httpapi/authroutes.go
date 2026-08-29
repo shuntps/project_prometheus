@@ -26,6 +26,7 @@ const (
 	authPathPrefix      = "/api/v1/auth"
 	sessionPath         = "/api/v1/auth/session"
 	broadcastAccessPath = "/api/v1/auth/broadcast-access"
+	activityPath        = "/api/v1/auth/session/activity"
 )
 
 // signInFailure is the one answer every unsuccessful sign-in produces: an unknown
@@ -43,6 +44,7 @@ type AuthStore interface {
 	ReplaceSession(ctx context.Context, previous *auth.SessionID, successor session.Session, now time.Time) (authstore.Resolved, error)
 	Resolve(ctx context.Context, token session.Token, now time.Time) (authstore.Resolved, error)
 	RevokeSession(ctx context.Context, id auth.SessionID, now time.Time) error
+	RecordActivity(ctx context.Context, id auth.SessionID, now time.Time, lifetimes session.Lifetimes) (bool, error)
 }
 
 // PasswordVerifier is the credential check the sign-in path performs. Stating it
@@ -123,6 +125,7 @@ func (s *authSurface) register(app *fiber.App) {
 	app.Delete(sessionPath, s.signOut)
 	app.Get(sessionPath, s.requirePermission(auth.PermissionOwnSessionRead, s.currentSession))
 	app.Get(broadcastAccessPath, s.requirePermission(auth.PermissionStreamBroadcast, grantedHandler))
+	app.Post(activityPath, s.recordActivity)
 }
 
 // noStore is mounted ahead of the abuse limiter, so a refusal decided before any
@@ -306,6 +309,50 @@ func (s *authSurface) signOut(c fiber.Ctx) error {
 		return fiber.NewError(http.StatusInternalServerError)
 	}
 	clearSessionCookie(c)
+	return c.SendStatus(http.StatusNoContent)
+}
+
+// recordActivity renews the inactivity deadline and nothing else. Whether the
+// interaction was meaningful is the caller's judgement, not something to enforce.
+func (s *authSurface) recordActivity(c fiber.Ctx) error {
+	if err := verifyRequestOrigin(c, s.origin); err != nil {
+		return err
+	}
+	if err := requireJSONRequest(c); err != nil {
+		return err
+	}
+
+	token, held := sessionTokenFromRequest(c)
+	if !held {
+		return fiber.NewError(http.StatusUnauthorized, authenticationRequired)
+	}
+	now := s.now().UTC()
+	resolved, err := s.store.Resolve(c.Context(), token, now)
+	switch {
+	case err == nil:
+	case errors.Is(err, authstore.ErrNotFound):
+		return fiber.NewError(http.StatusUnauthorized, authenticationRequired)
+	default:
+		return fiber.NewError(http.StatusInternalServerError)
+	}
+	if err := verifyCSRFToken(c, resolved.Session.CSRF); err != nil {
+		return err
+	}
+
+	// The operation decides its own permission inside the write's transaction, so
+	// nothing here can pick a more convenient rule or act on a stale authority.
+	switch _, err := s.store.RecordActivity(c.Context(), resolved.Session.ID, now, s.lifetimes); {
+	case err == nil:
+	case errors.Is(err, auth.ErrDenied):
+		return fiber.NewError(http.StatusForbidden, "The account may not perform this action.")
+	case errors.Is(err, authstore.ErrNotFound):
+		// The session stopped being usable between the resolution and the write.
+		return fiber.NewError(http.StatusUnauthorized, authenticationRequired)
+	default:
+		return fiber.NewError(http.StatusInternalServerError)
+	}
+	// Whether the update was persisted or suppressed is a storage concern; the
+	// answer is the same, so the frequency policy discloses nothing.
 	return c.SendStatus(http.StatusNoContent)
 }
 
