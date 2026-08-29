@@ -42,6 +42,7 @@ func behindProxyEnv(header string) map[string]string {
 		"PASSWORD_MIN_LENGTH":               "15",
 		"SESSION_ABSOLUTE_LIFETIME":         "12h",
 		"SESSION_IDLE_LIFETIME":             "30m",
+		"SESSION_ACTIVITY_INTERVAL":         "1m",
 		"PUBLIC_ORIGIN":                     "https://app.example.com",
 		"AUTH_RATE_LIMIT_CLIENT_ATTEMPTS":   "10",
 		"AUTH_RATE_LIMIT_IDENTITY_ATTEMPTS": "5",
@@ -168,7 +169,7 @@ func testAuthSettings() config.AuthSettings {
 			Params: password.Params{MemoryKiB: password.FloorMemoryKiB, Iterations: password.FloorIterations, Lanes: password.FloorLanes},
 			Policy: password.Policy{MinCodePoints: password.SingleFactorMinimum},
 		},
-		Session:   session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute},
+		Session:   session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute},
 		RateLimit: ratelimit.AuthPolicy{ClientAttempts: 10, IdentityAttempts: 5, Window: 15 * time.Minute, Capacity: ratelimit.MinAuthCapacity},
 	}
 }

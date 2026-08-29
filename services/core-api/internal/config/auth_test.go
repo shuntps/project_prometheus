@@ -15,6 +15,7 @@ import (
 var authKeys = []string{
 	"PASSWORD_ARGON2_MEMORY_KIB", "PASSWORD_ARGON2_ITERATIONS", "PASSWORD_ARGON2_LANES",
 	"PASSWORD_MIN_LENGTH", "SESSION_ABSOLUTE_LIFETIME", "SESSION_IDLE_LIFETIME",
+	"SESSION_ACTIVITY_INTERVAL",
 }
 
 func TestEveryAuthenticationSettingIsRequiredAwayFromDevelopment(t *testing.T) {
@@ -99,6 +100,7 @@ func TestStrongerThanTheFloorIsAccepted(t *testing.T) {
 		"PASSWORD_MIN_LENGTH":        "20",
 		"SESSION_ABSOLUTE_LIFETIME":  "8h",
 		"SESSION_IDLE_LIFETIME":      "15m",
+		"SESSION_ACTIVITY_INTERVAL":  "2m",
 	})))
 	if err != nil {
 		t.Fatalf("stronger settings were refused: %v", err)
@@ -108,7 +110,7 @@ func TestStrongerThanTheFloorIsAccepted(t *testing.T) {
 			Params: password.Params{MemoryKiB: 47104, Iterations: 3, Lanes: 2},
 			Policy: password.Policy{MinCodePoints: 20},
 		},
-		Session:   session.Lifetimes{Absolute: 8 * time.Hour, Idle: 15 * time.Minute},
+		Session:   session.Lifetimes{Absolute: 8 * time.Hour, Idle: 15 * time.Minute, ActivityInterval: 2 * time.Minute},
 		RateLimit: ratelimit.AuthPolicy{ClientAttempts: 10, IdentityAttempts: 5, Window: 15 * time.Minute, Capacity: 65_536},
 	}
 	if cfg.Auth != want {

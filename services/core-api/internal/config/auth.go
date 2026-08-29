@@ -20,6 +20,9 @@ const (
 	devPasswordMinLength = 15
 	devSessionAbsolute   = 12 * time.Hour
 	devSessionIdle       = 30 * time.Minute
+	// Activity is persisted at most once a minute per session, so a burst of user
+	// events costs one write rather than one per event.
+	devSessionActivityInterval = time.Minute
 	// Attempt allowances start deliberately low: a legitimate sign-in rarely
 	// needs several tries, and credential stuffing needs many.
 	devAuthClientAttempts   = int64(10)
@@ -114,6 +117,7 @@ func loadAuth(lookup Lookup, env Environment) (AuthSettings, []string) {
 	}{
 		{"SESSION_ABSOLUTE_LIFETIME", devSessionAbsolute, new(time.Duration)},
 		{"SESSION_IDLE_LIFETIME", devSessionIdle, new(time.Duration)},
+		{"SESSION_ACTIVITY_INTERVAL", devSessionActivityInterval, new(time.Duration)},
 		{"AUTH_RATE_LIMIT_WINDOW", devAuthWindow, new(time.Duration)},
 	}
 	for _, d := range durations {
@@ -143,13 +147,14 @@ func loadAuth(lookup Lookup, env Environment) (AuthSettings, []string) {
 			Policy: password.Policy{MinCodePoints: int(*counts[3].out)},
 		},
 		Session: session.Lifetimes{
-			Absolute: *durations[0].out,
-			Idle:     *durations[1].out,
+			Absolute:         *durations[0].out,
+			Idle:             *durations[1].out,
+			ActivityInterval: *durations[2].out,
 		},
 		RateLimit: ratelimit.AuthPolicy{
 			ClientAttempts:   int(*counts[4].out),
 			IdentityAttempts: int(*counts[5].out),
-			Window:           *durations[2].out,
+			Window:           *durations[3].out,
 			Capacity:         int(*counts[6].out),
 		},
 	}

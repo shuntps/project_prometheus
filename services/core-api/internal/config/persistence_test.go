@@ -31,6 +31,7 @@ func storeEnv(env string, extra map[string]string) map[string]string {
 		"PASSWORD_MIN_LENGTH":               "15",
 		"SESSION_ABSOLUTE_LIFETIME":         "12h",
 		"SESSION_IDLE_LIFETIME":             "30m",
+		"SESSION_ACTIVITY_INTERVAL":         "1m",
 		"PUBLIC_ORIGIN":                     "https://app.example.com",
 		"AUTH_RATE_LIMIT_CLIENT_ATTEMPTS":   "10",
 		"AUTH_RATE_LIMIT_IDENTITY_ATTEMPTS": "5",
