@@ -5,7 +5,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 )
 
 // signOut is idempotent over an absent, expired or revoked session. A store that
@@ -31,8 +31,8 @@ func (s *authSurface) signOut(c fiber.Ctx) error {
 		return fiber.NewError(http.StatusInternalServerError)
 	}
 	switch outcome {
-	case application.OutcomeSucceeded:
-	case application.OutcomeUnauthenticated:
+	case auth.OutcomeSucceeded:
+	case auth.OutcomeUnauthenticated:
 		// Nothing usable answers to this token, so the caller is already signed out.
 		clearSessionCookie(c)
 		return c.SendStatus(http.StatusNoContent)
@@ -52,7 +52,7 @@ func (s *authSurface) signOut(c fiber.Ctx) error {
 	}
 	switch ended {
 	// Revoked between the resolution and here: the outcome asked for holds.
-	case application.OutcomeSucceeded, application.OutcomeUnauthenticated:
+	case auth.OutcomeSucceeded, auth.OutcomeUnauthenticated:
 		clearSessionCookie(c)
 		return c.SendStatus(http.StatusNoContent)
 	default:

@@ -5,7 +5,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 )
 
 // recordActivity renews the inactivity deadline and nothing else. Whether the
@@ -27,8 +27,8 @@ func (s *authSurface) recordActivity(c fiber.Ctx) error {
 		return fiber.NewError(http.StatusInternalServerError)
 	}
 	switch outcome {
-	case application.OutcomeSucceeded:
-	case application.OutcomeUnauthenticated:
+	case auth.OutcomeSucceeded:
+	case auth.OutcomeUnauthenticated:
 		return fiber.NewError(http.StatusUnauthorized, authenticationRequired)
 	default:
 		return fiber.NewError(http.StatusInternalServerError)
@@ -46,11 +46,11 @@ func (s *authSurface) recordActivity(c fiber.Ctx) error {
 	switch renewed {
 	// Whether the update was persisted or suppressed is a storage concern; the
 	// answer is the same, so the frequency policy discloses nothing.
-	case application.OutcomeSucceeded:
+	case auth.OutcomeSucceeded:
 		return c.SendStatus(http.StatusNoContent)
-	case application.OutcomeForbidden:
+	case auth.OutcomeForbidden:
 		return fiber.NewError(http.StatusForbidden, "The account may not perform this action.")
-	case application.OutcomeUnauthenticated:
+	case auth.OutcomeUnauthenticated:
 		// The session stopped being usable between the resolution and the write.
 		return fiber.NewError(http.StatusUnauthorized, authenticationRequired)
 	default:

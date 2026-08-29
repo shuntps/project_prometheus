@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
@@ -81,7 +81,7 @@ func assertFailure(t *testing.T, found bool, err error) {
 	if found {
 		t.Error("a store failure reported a record as present")
 	}
-	if errors.Is(err, application.ErrUnavailable) {
+	if errors.Is(err, auth.ErrUnavailable) {
 		t.Error("the adapter translated the failure itself; only the use case may")
 	}
 }

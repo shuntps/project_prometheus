@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
@@ -31,28 +31,28 @@ type faultyStore struct {
 // document, so the original string is recovered rather than its escaped form.
 const driverDetail = `ERROR: relation "account_sessions" does not exist (SQLSTATE 42P01) host=db.internal user=core_api`
 
-func (f *faultyStore) CredentialByEmail(ctx context.Context, email iam.EmailAddress) (application.Credential, bool, error) {
+func (f *faultyStore) CredentialByEmail(ctx context.Context, email iam.EmailAddress) (auth.Credential, bool, error) {
 	if f.credential != nil {
 		if err := f.credential(); err != nil {
-			return application.Credential{}, false, err
+			return auth.Credential{}, false, err
 		}
 	}
 	return f.inner.CredentialByEmail(ctx, email)
 }
 
-func (f *faultyStore) ReplaceSession(ctx context.Context, previous *session.ID, successor session.Session, now time.Time) (application.Resolved, bool, error) {
+func (f *faultyStore) ReplaceSession(ctx context.Context, previous *session.ID, successor session.Session, now time.Time) (auth.Resolved, bool, error) {
 	if f.replace != nil {
 		if err := f.replace(); err != nil {
-			return application.Resolved{}, false, err
+			return auth.Resolved{}, false, err
 		}
 	}
 	return f.inner.ReplaceSession(ctx, previous, successor, now)
 }
 
-func (f *faultyStore) ResolveSession(ctx context.Context, token session.Token, now time.Time) (application.Resolved, bool, error) {
+func (f *faultyStore) ResolveSession(ctx context.Context, token session.Token, now time.Time) (auth.Resolved, bool, error) {
 	if f.resolve != nil {
 		if err := f.resolve(); err != nil {
-			return application.Resolved{}, false, err
+			return auth.Resolved{}, false, err
 		}
 	}
 	return f.inner.ResolveSession(ctx, token, now)

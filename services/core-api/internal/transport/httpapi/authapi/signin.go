@@ -6,7 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/httpapi/requestlimit"
 )
@@ -38,7 +38,7 @@ func (s *authSurface) signIn(c fiber.Ctx) error {
 		return fiber.NewError(http.StatusBadRequest, "The submitted values exceed the accepted size.")
 	}
 
-	in := application.SignInRequest{
+	in := auth.SignInRequest{
 		ClientKey: requestlimit.ClientKey(c),
 		Email:     req.Email,
 		Password:  req.Password,
@@ -52,12 +52,12 @@ func (s *authSurface) signIn(c fiber.Ctx) error {
 		return fiber.NewError(http.StatusInternalServerError)
 	}
 	switch result.Outcome {
-	case application.OutcomeSucceeded:
+	case auth.OutcomeSucceeded:
 		setSessionCookie(c, result.Token, result.Session.AbsoluteExpiresAt)
 		return c.Status(http.StatusCreated).JSON(viewOf(result.Session, result.Principal))
-	case application.OutcomeRateLimited:
+	case auth.OutcomeRateLimited:
 		return fiber.NewError(http.StatusTooManyRequests, "Too many authentication attempts.")
-	case application.OutcomeRejected:
+	case auth.OutcomeRejected:
 		return fiber.NewError(http.StatusUnauthorized, signInFailure)
 	default:
 		// An outcome this transport does not map is a refusal, never a session.

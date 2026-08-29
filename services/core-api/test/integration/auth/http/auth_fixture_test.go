@@ -17,7 +17,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
@@ -29,6 +29,7 @@ import (
 	"github.com/shuntps/project_prometheus/services/core-api/internal/testsupport/postgresfixture"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/httpapi"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/httpapi/authapi"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/httpapi/httperror"
 )
 
 // The image is pinned by digest so this evidence is reproducible. The credentials
@@ -85,8 +86,8 @@ type surface struct {
 
 // authConfig is what a test may replace before the use cases are constructed.
 type authConfig struct {
-	hasher    application.PasswordVerifier
-	limiter   application.AttemptLimiter
+	hasher    auth.PasswordVerifier
+	limiter   auth.AttemptLimiter
 	lifetimes session.Lifetimes
 	now       func() time.Time
 	global    ratelimit.Policy
@@ -179,14 +180,14 @@ func newSurface(t *testing.T, tune ...func(*authConfig)) *surface {
 		t.Fatalf("building the repository failed: %v", err)
 	}
 	faults := &faultyStore{inner: repository}
-	signIn, err := application.NewSignIn(application.SignInOptions{
+	signIn, err := auth.NewSignIn(auth.SignInOptions{
 		Repository: faults, Hasher: cfg.hasher, Limiter: cfg.limiter,
 		Lifetimes: cfg.lifetimes, Now: cfg.now,
 	})
 	if err != nil {
 		t.Fatalf("building the sign-in use case failed: %v", err)
 	}
-	sessions, err := application.NewSessions(application.SessionsOptions{
+	sessions, err := auth.NewSessions(auth.SessionsOptions{
 		Repository: faults, Lifetimes: cfg.lifetimes, Now: cfg.now,
 	})
 	if err != nil {
@@ -382,4 +383,27 @@ func (s *surface) liveSessions(t *testing.T, account iam.Account) int {
 		t.Fatalf("counting sessions failed: %v", err)
 	}
 	return live
+}
+
+// The public refusal messages of the authentication surface. They are pinned here
+// rather than imported, so changing one in production turns these tests red.
+const (
+	crossSiteMessage  = "The request did not come from the application."
+	csrfTokenMessage  = "The request did not carry a valid CSRF token."
+	contentTypeReason = "The request must be sent as application/json."
+)
+
+// messageOf decodes the error contract and returns the message a client reads.
+// It consumes the body, so a caller keeps the returned value rather than re-reading.
+func messageOf(t *testing.T, res *http.Response) string {
+	t.Helper()
+	raw, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("reading the body failed: %v", err)
+	}
+	var decoded httperror.ErrorResponse
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("the answer %q is not the error contract: %v", raw, err)
+	}
+	return decoded.Error.Message
 }

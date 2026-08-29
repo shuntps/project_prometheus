@@ -10,7 +10,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
@@ -23,16 +23,16 @@ var errNotReached = errors.New("the mounting test reached persistence")
 // inert satisfies the ports the use cases need without standing in for a store.
 type inert struct{}
 
-func (inert) CredentialByEmail(context.Context, iam.EmailAddress) (application.Credential, bool, error) {
-	return application.Credential{}, false, errNotReached
+func (inert) CredentialByEmail(context.Context, iam.EmailAddress) (auth.Credential, bool, error) {
+	return auth.Credential{}, false, errNotReached
 }
 
-func (inert) ResolveSession(context.Context, session.Token, time.Time) (application.Resolved, bool, error) {
-	return application.Resolved{}, false, errNotReached
+func (inert) ResolveSession(context.Context, session.Token, time.Time) (auth.Resolved, bool, error) {
+	return auth.Resolved{}, false, errNotReached
 }
 
-func (inert) ReplaceSession(context.Context, *session.ID, session.Session, time.Time) (application.Resolved, bool, error) {
-	return application.Resolved{}, false, errNotReached
+func (inert) ReplaceSession(context.Context, *session.ID, session.Session, time.Time) (auth.Resolved, bool, error) {
+	return auth.Resolved{}, false, errNotReached
 }
 
 func (inert) RevokeSession(context.Context, session.ID, time.Time) (bool, error) {
@@ -56,13 +56,13 @@ func (limiter) Allow(string, string, time.Time) bool { return true }
 func completeOptions(t *testing.T) authapi.Options {
 	t.Helper()
 	lifetimes := session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute}
-	signIn, err := application.NewSignIn(application.SignInOptions{
+	signIn, err := auth.NewSignIn(auth.SignInOptions{
 		Repository: inert{}, Hasher: verifier{}, Limiter: limiter{}, Lifetimes: lifetimes,
 	})
 	if err != nil {
 		t.Fatalf("building the sign-in use case failed: %v", err)
 	}
-	sessions, err := application.NewSessions(application.SessionsOptions{Repository: inert{}, Lifetimes: lifetimes})
+	sessions, err := auth.NewSessions(auth.SessionsOptions{Repository: inert{}, Lifetimes: lifetimes})
 	if err != nil {
 		t.Fatalf("building the session use cases failed: %v", err)
 	}

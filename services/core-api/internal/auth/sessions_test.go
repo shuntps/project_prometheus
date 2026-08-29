@@ -1,4 +1,4 @@
-package application_test
+package auth_test
 
 import (
 	"context"
@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
-func newSessions(t *testing.T, repo *repository) *application.Sessions {
+func newSessions(t *testing.T, repo *repository) *auth.Sessions {
 	t.Helper()
-	use, err := application.NewSessions(application.SessionsOptions{
+	use, err := auth.NewSessions(auth.SessionsOptions{
 		Repository: repo, Lifetimes: lifetimes, Now: clock(),
 	})
 	if err != nil {
@@ -36,15 +36,15 @@ func aToken(t *testing.T) session.Token {
 // answered as an established absence, which no observation supports.
 func TestAStoreFailureIsNeverAnAbsentSession(t *testing.T) {
 	_, outcome, err := newSessions(t, &repository{resolveErr: storeDown}).Authenticate(context.Background(), aToken(t))
-	if !errors.Is(err, application.ErrUnavailable) {
+	if !errors.Is(err, auth.ErrUnavailable) {
 		t.Fatalf("a store failure reported %v", err)
 	}
-	if outcome == application.OutcomeUnauthenticated {
+	if outcome == auth.OutcomeUnauthenticated {
 		t.Fatal("a store failure was reported as an absent session")
 	}
 
 	_, outcome, err = newSessions(t, &repository{resolveFound: false}).Authenticate(context.Background(), aToken(t))
-	if err != nil || outcome != application.OutcomeUnauthenticated {
+	if err != nil || outcome != auth.OutcomeUnauthenticated {
 		t.Fatalf("an absence produced (%d, %v)", outcome, err)
 	}
 }
@@ -56,14 +56,14 @@ func TestAuthorisationSeparatesForbiddenFromUnauthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("drawing an account failed: %v", err)
 	}
-	granted := application.Resolved{Principal: iam.Principal{
+	granted := auth.Resolved{Principal: iam.Principal{
 		Account: account, Kind: iam.KindViewer, Status: iam.StatusActive,
 		Surface: iam.SurfacePublic, Roles: []iam.Role{iam.RoleViewer},
 	}}
 
 	_, outcome, err := newSessions(t, &repository{resolved: granted, resolveFound: true}).
 		Authorise(context.Background(), aToken(t), iam.PermissionOwnSessionRead)
-	if err != nil || outcome != application.OutcomeSucceeded {
+	if err != nil || outcome != auth.OutcomeSucceeded {
 		t.Fatalf("a granted permission produced (%d, %v)", outcome, err)
 	}
 
@@ -72,7 +72,7 @@ func TestAuthorisationSeparatesForbiddenFromUnauthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected failure: %v", err)
 	}
-	if outcome != application.OutcomeForbidden {
+	if outcome != auth.OutcomeForbidden {
 		t.Errorf("outcome %d, want OutcomeForbidden", outcome)
 	}
 
@@ -81,7 +81,7 @@ func TestAuthorisationSeparatesForbiddenFromUnauthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected failure: %v", err)
 	}
-	if outcome != application.OutcomeUnauthenticated {
+	if outcome != auth.OutcomeUnauthenticated {
 		t.Errorf("outcome %d, want OutcomeUnauthenticated", outcome)
 	}
 }
@@ -95,19 +95,19 @@ func TestActivityKeepsDeniedApartFromAbsent(t *testing.T) {
 	}
 	cases := map[string]struct {
 		repo    *repository
-		outcome application.Outcome
+		outcome auth.Outcome
 		failed  bool
 	}{
-		"denied inside the write": {&repository{activityErr: fmt.Errorf("%w: refused", iam.ErrDenied)}, application.OutcomeForbidden, false},
-		"session gone":            {&repository{activityFound: false}, application.OutcomeUnauthenticated, false},
-		"store failure":           {&repository{activityErr: storeDown}, application.OutcomeUnknown, true},
-		"renewed":                 {&repository{activityFound: true}, application.OutcomeSucceeded, false},
+		"denied inside the write": {&repository{activityErr: fmt.Errorf("%w: refused", iam.ErrDenied)}, auth.OutcomeForbidden, false},
+		"session gone":            {&repository{activityFound: false}, auth.OutcomeUnauthenticated, false},
+		"store failure":           {&repository{activityErr: storeDown}, auth.OutcomeUnknown, true},
+		"renewed":                 {&repository{activityFound: true}, auth.OutcomeSucceeded, false},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			outcome, err := newSessions(t, c.repo).RenewActivity(context.Background(), id, fixedNow)
 			if c.failed {
-				if !errors.Is(err, application.ErrUnavailable) {
+				if !errors.Is(err, auth.ErrUnavailable) {
 					t.Fatalf("a store failure reported %v", err)
 				}
 			} else if err != nil {
@@ -145,14 +145,31 @@ func TestEndingASessionAlreadyGoneIsNotAFailure(t *testing.T) {
 		t.Fatalf("drawing a session identifier failed: %v", err)
 	}
 	outcome, err := newSessions(t, &repository{revokeFound: false}).End(context.Background(), id)
-	if err != nil || outcome != application.OutcomeUnauthenticated {
+	if err != nil || outcome != auth.OutcomeUnauthenticated {
 		t.Fatalf("an already revoked session produced (%d, %v)", outcome, err)
 	}
 	outcome, err = newSessions(t, &repository{revokeErr: storeDown}).End(context.Background(), id)
-	if !errors.Is(err, application.ErrUnavailable) {
+	if !errors.Is(err, auth.ErrUnavailable) {
 		t.Fatalf("a store failure reported %v", err)
 	}
-	if outcome != application.OutcomeUnknown {
+	if outcome != auth.OutcomeUnknown {
 		t.Errorf("outcome %d, want OutcomeUnknown", outcome)
+	}
+}
+
+// TestAPartialSessionUseCasesAreRefused keeps a set of session use cases missing
+// a repository or a usable pair of lifetimes from ever being built.
+func TestAPartialSessionUseCasesAreRefused(t *testing.T) {
+	for name, opts := range map[string]auth.SessionsOptions{
+		"no repository": {Lifetimes: lifetimes, Now: clock()},
+		"no lifetimes":  {Repository: &repository{}, Now: clock()},
+		"idle too long": {Repository: &repository{}, Now: clock(),
+			Lifetimes: session.Lifetimes{Absolute: time.Hour, Idle: 2 * time.Hour, ActivityInterval: time.Minute}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if use, err := auth.NewSessions(opts); err == nil || use != nil {
+				t.Fatal("a partial set of session use cases was built")
+			}
+		})
 	}
 }

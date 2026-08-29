@@ -10,7 +10,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/config"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres"
@@ -72,14 +72,14 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		store.Close()
 		return nil, err
 	}
-	signIn, err := application.NewSignIn(application.SignInOptions{
+	signIn, err := auth.NewSignIn(auth.SignInOptions{
 		Repository: repository, Hasher: hasher, Limiter: limiter, Lifetimes: cfg.Auth.Session,
 	})
 	if err != nil {
 		store.Close()
 		return nil, err
 	}
-	sessions, err := application.NewSessions(application.SessionsOptions{
+	sessions, err := auth.NewSessions(auth.SessionsOptions{
 		Repository: repository, Lifetimes: cfg.Auth.Session,
 	})
 	if err != nil {

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
@@ -24,43 +24,43 @@ func NewRepository(store *Store) (Repository, error) {
 }
 
 var (
-	_ application.SignInRepository  = Repository{}
-	_ application.SessionRepository = Repository{}
+	_ auth.SignInRepository  = Repository{}
+	_ auth.SessionRepository = Repository{}
 )
 
-func (r Repository) CredentialByEmail(ctx context.Context, email iam.EmailAddress) (application.Credential, bool, error) {
+func (r Repository) CredentialByEmail(ctx context.Context, email iam.EmailAddress) (auth.Credential, bool, error) {
 	credential, err := r.store.CredentialByEmail(ctx, email)
 	switch {
 	case err == nil:
-		return application.Credential(credential), true, nil
+		return auth.Credential(credential), true, nil
 	case errors.Is(err, ErrNotFound):
-		return application.Credential{}, false, nil
+		return auth.Credential{}, false, nil
 	default:
-		return application.Credential{}, false, err
+		return auth.Credential{}, false, err
 	}
 }
 
-func (r Repository) ResolveSession(ctx context.Context, token session.Token, now time.Time) (application.Resolved, bool, error) {
+func (r Repository) ResolveSession(ctx context.Context, token session.Token, now time.Time) (auth.Resolved, bool, error) {
 	resolved, err := r.store.Resolve(ctx, token, now)
 	switch {
 	case err == nil:
-		return application.Resolved(resolved), true, nil
+		return auth.Resolved(resolved), true, nil
 	case errors.Is(err, ErrNotFound):
-		return application.Resolved{}, false, nil
+		return auth.Resolved{}, false, nil
 	default:
-		return application.Resolved{}, false, err
+		return auth.Resolved{}, false, err
 	}
 }
 
-func (r Repository) ReplaceSession(ctx context.Context, previous *session.ID, successor session.Session, now time.Time) (application.Resolved, bool, error) {
+func (r Repository) ReplaceSession(ctx context.Context, previous *session.ID, successor session.Session, now time.Time) (auth.Resolved, bool, error) {
 	resolved, err := r.store.ReplaceSession(ctx, previous, successor, now)
 	switch {
 	case err == nil:
-		return application.Resolved(resolved), true, nil
+		return auth.Resolved(resolved), true, nil
 	case errors.Is(err, ErrNotFound):
-		return application.Resolved{}, false, nil
+		return auth.Resolved{}, false, nil
 	default:
-		return application.Resolved{}, false, err
+		return auth.Resolved{}, false, err
 	}
 }
 
