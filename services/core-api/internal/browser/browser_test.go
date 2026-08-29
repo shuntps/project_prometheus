@@ -1,9 +1,9 @@
-package web_test
+package browser_test
 
 import (
 	"testing"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/web"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
 )
 
 func TestTheCanonicalOriginKeepsOnlyWhatABrowserSends(t *testing.T) {
@@ -20,7 +20,7 @@ func TestTheCanonicalOriginKeepsOnlyWhatABrowserSends(t *testing.T) {
 		{"http://127.0.0.1", "http://127.0.0.1"},
 	}
 	for _, c := range cases {
-		origin, err := web.ParseOrigin(c.raw)
+		origin, err := browser.ParseOrigin(c.raw)
 		if err != nil {
 			t.Fatalf("%q was refused: %v", c.raw, err)
 		}
@@ -44,14 +44,14 @@ func TestAnOriginCarryingMoreThanSchemeHostAndPortIsRefused(t *testing.T) {
 		"https://",
 		"https:///path",
 	} {
-		if origin, err := web.ParseOrigin(raw); err == nil {
+		if origin, err := browser.ParseOrigin(raw); err == nil {
 			t.Errorf("%q was accepted as %q", raw, origin)
 		}
 	}
 }
 
 func TestAnOriginMatchesOnlyItsExactSelf(t *testing.T) {
-	origin, err := web.ParseOrigin("https://app.example.com")
+	origin, err := browser.ParseOrigin("https://app.example.com")
 	if err != nil {
 		t.Fatalf("parsing failed: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestAnOriginMatchesOnlyItsExactSelf(t *testing.T) {
 }
 
 func TestAZeroOriginMatchesNothing(t *testing.T) {
-	var origin web.Origin
+	var origin browser.Origin
 	if !origin.IsZero() {
 		t.Fatal("the zero value should report itself as unset")
 	}
@@ -107,7 +107,7 @@ func TestSecurityAndLoopbackAreReadFromTheOriginItself(t *testing.T) {
 		{"http://10.0.0.1", false, false},
 	}
 	for _, c := range cases {
-		origin, err := web.ParseOrigin(c.raw)
+		origin, err := browser.ParseOrigin(c.raw)
 		if err != nil {
 			t.Fatalf("%q was refused: %v", c.raw, err)
 		}

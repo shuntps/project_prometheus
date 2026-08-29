@@ -13,9 +13,9 @@ import (
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
-	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/web"
 )
 
 // Route patterns of the public authentication surface. They are the paths the
@@ -50,7 +50,7 @@ type AuthOptions struct {
 	Store     AuthStore
 	Hasher    PasswordVerifier
 	Lifetimes session.Lifetimes
-	Origin    web.Origin
+	Origin    browser.Origin
 	Limiter   *ratelimit.AuthLimiter
 	Now       func() time.Time
 	Random    io.Reader
@@ -60,7 +60,7 @@ type authSurface struct {
 	store     AuthStore
 	hasher    PasswordVerifier
 	lifetimes session.Lifetimes
-	origin    web.Origin
+	origin    browser.Origin
 	limiter   *ratelimit.AuthLimiter
 	now       func() time.Time
 	random    io.Reader

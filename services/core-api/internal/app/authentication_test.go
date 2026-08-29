@@ -20,12 +20,12 @@ import (
 	"github.com/shuntps/project_prometheus/services/core-api/internal/app"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/config"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/migration"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
-	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/web"
 )
 
 const publicAuthOrigin = "https://app.example.com"
@@ -51,7 +51,7 @@ func TestTheRealServiceMountsTheAuthenticationSurface(t *testing.T) {
 	applySchema(t, target)
 
 	cfg := storeConfig(t, freeAddress(t), target)
-	origin, err := web.ParseOrigin(publicAuthOrigin)
+	origin, err := browser.ParseOrigin(publicAuthOrigin)
 	if err != nil {
 		t.Fatalf("parsing the origin failed: %v", err)
 	}
@@ -104,13 +104,13 @@ func TestTheRealServiceMountsTheAuthenticationSurface(t *testing.T) {
 // TestStartupIsRefusedOnAnUnusableAuthenticationPosture keeps a service that
 // could not enforce one of its authentication controls from ever serving.
 func TestStartupIsRefusedOnAnUnusableAuthenticationPosture(t *testing.T) {
-	origin, err := web.ParseOrigin(publicAuthOrigin)
+	origin, err := browser.ParseOrigin(publicAuthOrigin)
 	if err != nil {
 		t.Fatalf("parsing the origin failed: %v", err)
 	}
 
 	cases := map[string]func(*config.Config){
-		"no public origin":         func(c *config.Config) { c.PublicOrigin = web.Origin{} },
+		"no public origin":         func(c *config.Config) { c.PublicOrigin = browser.Origin{} },
 		"no attempt policy":        func(c *config.Config) { c.Auth.RateLimit = ratelimit.AuthPolicy{} },
 		"no client bound":          func(c *config.Config) { c.Auth.RateLimit.ClientAttempts = 0 },
 		"no identity bound":        func(c *config.Config) { c.Auth.RateLimit.IdentityAttempts = 0 },
@@ -242,7 +242,7 @@ func signedInClient(t *testing.T, base, address, plaintext string) (*http.Cookie
 		t.Fatalf("decoding the session view failed: %v", err)
 	}
 	for _, cookie := range res.Cookies() {
-		if cookie.Name == web.SessionCookieName {
+		if cookie.Name == browser.SessionCookieName {
 			return cookie, view.CSRFToken
 		}
 	}
@@ -258,7 +258,7 @@ func activityRequest(t *testing.T, base string, cookie *http.Cookie, csrf string
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", publicAuthOrigin)
-	req.Header.Set(web.CSRFHeader, csrf)
+	req.Header.Set(browser.CSRFHeader, csrf)
 	req.AddCookie(cookie)
 	return req
 }
@@ -271,7 +271,7 @@ func TestActivityIsRefusedByARoleWithdrawnMidRequest(t *testing.T) {
 	applySchema(t, target)
 
 	cfg := storeConfig(t, freeAddress(t), target)
-	origin, err := web.ParseOrigin(publicAuthOrigin)
+	origin, err := browser.ParseOrigin(publicAuthOrigin)
 	if err != nil {
 		t.Fatalf("parsing the origin failed: %v", err)
 	}

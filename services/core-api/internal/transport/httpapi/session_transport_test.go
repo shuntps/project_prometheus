@@ -13,7 +13,7 @@ import (
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
-	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/web"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
 )
 
 func TestTheSessionCookieCarriesEveryAdoptedAttribute(t *testing.T) {
@@ -230,8 +230,8 @@ func TestNoClientHeaderDecidesTheIdentity(t *testing.T) {
 		{"X-Forwarded-User", creatorAccount.ID.String()},
 	}
 	req := httptest.NewRequest(http.MethodGet, sessionRoute, nil)
-	req.Header.Set(web.OriginHeader, publicOrigin)
-	req.AddCookie(&http.Cookie{Name: web.SessionCookieName, Value: viewer.token})
+	req.Header.Set(browser.OriginHeader, publicOrigin)
+	req.AddCookie(&http.Cookie{Name: browser.SessionCookieName, Value: viewer.token})
 	for _, h := range spoofed {
 		req.Header.Set(h.header, h.value)
 	}
@@ -256,8 +256,8 @@ func TestNoClientHeaderDecidesTheIdentity(t *testing.T) {
 
 	// The escalated permission is still refused with the same headers present.
 	broadcast := httptest.NewRequest(http.MethodGet, broadcastRoute, nil)
-	broadcast.Header.Set(web.OriginHeader, publicOrigin)
-	broadcast.AddCookie(&http.Cookie{Name: web.SessionCookieName, Value: viewer.token})
+	broadcast.Header.Set(browser.OriginHeader, publicOrigin)
+	broadcast.AddCookie(&http.Cookie{Name: browser.SessionCookieName, Value: viewer.token})
 	for _, h := range spoofed {
 		broadcast.Header.Set(h.header, h.value)
 	}

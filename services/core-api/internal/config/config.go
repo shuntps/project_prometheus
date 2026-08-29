@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/ratelimit"
-	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/web"
 )
 
 type Environment string
@@ -27,7 +27,7 @@ type Config struct {
 	Environment     Environment
 	LogLevel        string
 	HTTPAddress     string
-	PublicOrigin    web.Origin
+	PublicOrigin    browser.Origin
 	RateLimit       ratelimit.Policy
 	DatabaseURL     persistence.DSN
 	Database        persistence.Settings
@@ -184,23 +184,23 @@ func isHostname(host string) bool {
 
 // loadPublicOrigin has no default: a wrong guess for the value every cross-site
 // check compares against would refuse every request or accept a foreign site.
-func loadPublicOrigin(lookup Lookup, env Environment) (web.Origin, []string) {
+func loadPublicOrigin(lookup Lookup, env Environment) (browser.Origin, []string) {
 	raw, present := trimmed(lookup, "PUBLIC_ORIGIN")
 	if !present {
-		return web.Origin{}, []string{"PUBLIC_ORIGIN is required"}
+		return browser.Origin{}, []string{"PUBLIC_ORIGIN is required"}
 	}
-	origin, err := web.ParseOrigin(raw)
+	origin, err := browser.ParseOrigin(raw)
 	if err != nil {
-		return web.Origin{}, []string{fmt.Sprintf("PUBLIC_ORIGIN is unusable: %s", err)}
+		return browser.Origin{}, []string{fmt.Sprintf("PUBLIC_ORIGIN is unusable: %s", err)}
 	}
 	// A plain-text origin is accepted only where the browser already treats the
 	// context as trustworthy, and never outside development.
 	if !origin.IsSecure() {
 		if env != EnvDevelopment {
-			return web.Origin{}, []string{"PUBLIC_ORIGIN must use https outside development"}
+			return browser.Origin{}, []string{"PUBLIC_ORIGIN must use https outside development"}
 		}
 		if !origin.IsLoopback() {
-			return web.Origin{}, []string{"PUBLIC_ORIGIN may use http only on a loopback host"}
+			return browser.Origin{}, []string{"PUBLIC_ORIGIN may use http only on a loopback host"}
 		}
 	}
 	return origin, nil

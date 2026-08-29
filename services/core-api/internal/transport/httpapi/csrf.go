@@ -7,7 +7,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
-	"github.com/shuntps/project_prometheus/services/core-api/internal/transport/web"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
 )
 
 const (
@@ -19,15 +19,15 @@ const (
 
 // verifyRequestOrigin runs before anything else is read. It compares against the
 // configured origin, never a Host or forwarded header a client controls.
-func verifyRequestOrigin(c fiber.Ctx, origin web.Origin) error {
+func verifyRequestOrigin(c fiber.Ctx, origin browser.Origin) error {
 	// An absent Origin is a refusal, not a pass: browsers always send it here, so
 	// its absence means a non-browser client or a stripped header.
-	if !origin.Matches(c.Get(web.OriginHeader)) {
+	if !origin.Matches(c.Get(browser.OriginHeader)) {
 		return fiber.NewError(http.StatusForbidden, crossSiteMessage)
 	}
 	// Fetch Metadata is defence in depth. It is enforced when the browser sends
 	// it and never used to excuse the checks above.
-	if site := c.Get(web.FetchSiteHeader); site != "" && site != "same-origin" {
+	if site := c.Get(browser.FetchSiteHeader); site != "" && site != "same-origin" {
 		return fiber.NewError(http.StatusForbidden, crossSiteMessage)
 	}
 	return nil
@@ -46,7 +46,7 @@ func requireJSONRequest(c fiber.Ctx) error {
 // verifyCSRFToken compares the header against the token issued with the session.
 // An absent or unmatched value is refused; there is no fallback.
 func verifyCSRFToken(c fiber.Ctx, issued session.CSRFToken) error {
-	presented, err := session.ParseCSRFToken(c.Get(web.CSRFHeader))
+	presented, err := session.ParseCSRFToken(c.Get(browser.CSRFHeader))
 	if err != nil || !issued.Equals(presented) {
 		return fiber.NewError(http.StatusForbidden, csrfTokenMessage)
 	}

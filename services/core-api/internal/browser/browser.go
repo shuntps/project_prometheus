@@ -1,6 +1,6 @@
-// Package web owns the browser-facing transport policy: the canonical public
+// Package browser owns the browser-facing transport policy: the canonical public
 // origin, the session cookie's shape and the headers the CSRF defence reads.
-package web
+package browser
 
 import (
 	"errors"
