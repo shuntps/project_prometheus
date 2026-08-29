@@ -1,8 +1,6 @@
 package iam
 
-import (
-	"errors"
-)
+import "errors"
 
 var (
 	// ErrInvalid reports a value the domain refuses to construct.

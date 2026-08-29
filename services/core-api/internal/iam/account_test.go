@@ -63,3 +63,18 @@ func TestOnlyAnExplicitlyUsableStatusAuthenticates(t *testing.T) {
 		}
 	}
 }
+
+// TestKindParsingResolvesNoDefault keeps an unset or unknown value from becoming
+// a kind, which every surface and grant decision then depends on.
+func TestKindParsingResolvesNoDefault(t *testing.T) {
+	for _, unknown := range []string{"", "   ", "admin", "Viewer"} {
+		if kind, known := iam.ParseKind(unknown); known {
+			t.Errorf("%q resolved to the kind %q", unknown, kind)
+		}
+	}
+	for _, raw := range []string{"viewer", "creator", "operator", " operator "} {
+		if _, known := iam.ParseKind(raw); !known {
+			t.Errorf("%q was refused", raw)
+		}
+	}
+}

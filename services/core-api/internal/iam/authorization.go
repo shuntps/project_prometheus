@@ -31,32 +31,47 @@ const (
 	PermissionPayoutRead         Permission = "payout:read"
 )
 
-// grants is the whole authorisation table. A permission that appears in no row
-// is granted to nobody: absence is never authorisation.
-var grants = map[Role][]Permission{
-	RoleViewer:             {PermissionOwnSessionRead, PermissionStreamWatch},
-	RoleCreator:            {PermissionOwnSessionRead, PermissionStreamWatch, PermissionStreamBroadcast},
-	RoleOperatorSupport:    {PermissionOwnSessionRead, PermissionSupportTicketRead},
-	RoleOperatorModeration: {PermissionOwnSessionRead, PermissionModerationCaseRead},
-	RoleOperatorCompliance: {PermissionOwnSessionRead, PermissionComplianceCaseRead},
-	RoleOperatorFinance:    {PermissionOwnSessionRead, PermissionPayoutRead},
+// roleDefinition is everything a role is: where it may be exercised, which kinds
+// may hold it, and what it carries.
+type roleDefinition struct {
+	surface     Surface
+	kinds       []Kind
+	permissions []Permission
 }
 
-// roleKinds names the account kinds that may hold a role at all. A kind absent
-// from a row may neither be granted the role nor exercise it.
-var roleKinds = map[Role][]Kind{
-	RoleViewer:             {KindViewer, KindCreator},
-	RoleCreator:            {KindCreator},
-	RoleOperatorSupport:    {KindOperator},
-	RoleOperatorModeration: {KindOperator},
-	RoleOperatorCompliance: {KindOperator},
-	RoleOperatorFinance:    {KindOperator},
+// roleDefinitions is the single authority on roles. A role absent from it exists
+// for nobody, and a permission absent from a row is granted by that row to none.
+var roleDefinitions = map[Role]roleDefinition{
+	RoleViewer: {
+		surface: SurfacePublic, kinds: []Kind{KindViewer, KindCreator},
+		permissions: []Permission{PermissionOwnSessionRead, PermissionStreamWatch},
+	},
+	RoleCreator: {
+		surface: SurfacePublic, kinds: []Kind{KindCreator},
+		permissions: []Permission{PermissionOwnSessionRead, PermissionStreamWatch, PermissionStreamBroadcast},
+	},
+	RoleOperatorSupport: {
+		surface: SurfaceOperator, kinds: []Kind{KindOperator},
+		permissions: []Permission{PermissionOwnSessionRead, PermissionSupportTicketRead},
+	},
+	RoleOperatorModeration: {
+		surface: SurfaceOperator, kinds: []Kind{KindOperator},
+		permissions: []Permission{PermissionOwnSessionRead, PermissionModerationCaseRead},
+	},
+	RoleOperatorCompliance: {
+		surface: SurfaceOperator, kinds: []Kind{KindOperator},
+		permissions: []Permission{PermissionOwnSessionRead, PermissionComplianceCaseRead},
+	},
+	RoleOperatorFinance: {
+		surface: SurfaceOperator, kinds: []Kind{KindOperator},
+		permissions: []Permission{PermissionOwnSessionRead, PermissionPayoutRead},
+	},
 }
 
 // ParseRole resolves no default: an unset or unknown value is not a role.
 func ParseRole(raw string) (Role, bool) {
 	role := Role(strings.TrimSpace(raw))
-	if _, known := grants[role]; !known {
+	if _, known := roleDefinitions[role]; !known {
 		return "", false
 	}
 	return role, true
@@ -65,10 +80,11 @@ func ParseRole(raw string) (Role, bool) {
 // ValidateGrant refuses a role the account kind may not hold, so an operator
 // privilege can never be attached to a non-operator account.
 func ValidateGrant(kind Kind, role Role) error {
-	if _, known := grants[role]; !known {
+	definition, known := roleDefinitions[role]
+	if !known {
 		return fmt.Errorf("%w: %q is not a role", ErrInvalid, role)
 	}
-	for _, permitted := range roleKinds[role] {
+	for _, permitted := range definition.kinds {
 		if permitted == kind {
 			return nil
 		}
@@ -92,6 +108,11 @@ func Authorize(p Principal, permission Permission) error {
 	if permission == "" {
 		return fmt.Errorf("%w: no permission was named", ErrDenied)
 	}
+	// A decision needs somebody to decide about. The refusal names no value, so
+	// it discloses nothing about the identity that was missing.
+	if p.Account.IsZero() {
+		return fmt.Errorf("%w: the principal names no account", ErrDenied)
+	}
 	if !p.Status.CanAuthenticate() {
 		return fmt.Errorf("%w: the account is not in a state that permits action", ErrDenied)
 	}
@@ -101,18 +122,18 @@ func Authorize(p Principal, permission Permission) error {
 	}
 
 	for _, role := range p.Roles {
-		held, known := grants[role]
+		definition, known := roleDefinitions[role]
 		if !known {
 			continue
 		}
 		// The role must belong to this surface and be holdable by this kind.
-		if surface, known := role.Surface(); !known || surface != p.Surface {
+		if definition.surface != p.Surface {
 			continue
 		}
 		if err := ValidateGrant(p.Kind, role); err != nil {
 			continue
 		}
-		for _, candidate := range held {
+		for _, candidate := range definition.permissions {
 			if candidate == permission {
 				return nil
 			}
