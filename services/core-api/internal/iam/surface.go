@@ -1,8 +1,6 @@
 package iam
 
-import (
-	"fmt"
-)
+import "fmt"
 
 // Surface separates the public application from the operator console. A session
 // belongs to one of them and never becomes the other.
@@ -13,19 +11,9 @@ const (
 	SurfaceOperator Surface = "operator"
 )
 
-// roleSurface names the one surface a role may be exercised from. It is read in
-// both directions, so each family of roles is inert on the other surface.
-var roleSurface = map[Role]Surface{
-	RoleViewer:             SurfacePublic,
-	RoleCreator:            SurfacePublic,
-	RoleOperatorSupport:    SurfaceOperator,
-	RoleOperatorModeration: SurfaceOperator,
-	RoleOperatorCompliance: SurfaceOperator,
-	RoleOperatorFinance:    SurfaceOperator,
-}
-
-// surfaceKind names the account kinds that may open a session on a surface.
-var surfaceKind = map[Surface][]Kind{
+// surfaceKinds is the single authority on which account kinds may open a session
+// on a surface. It is a different invariant from what a role carries.
+var surfaceKinds = map[Surface][]Kind{
 	SurfacePublic:   {KindViewer, KindCreator},
 	SurfaceOperator: {KindOperator},
 }
@@ -33,7 +21,7 @@ var surfaceKind = map[Surface][]Kind{
 // ValidateSurface refuses a surface the account kind may not open a session on,
 // so an operator session can only ever belong to an operator account.
 func ValidateSurface(kind Kind, surface Surface) error {
-	permitted, known := surfaceKind[surface]
+	permitted, known := surfaceKinds[surface]
 	if !known {
 		return fmt.Errorf("%w: %q is not a surface", ErrInvalid, surface)
 	}
@@ -45,8 +33,9 @@ func ValidateSurface(kind Kind, surface Surface) error {
 	return fmt.Errorf("%w: a %q account may not open a %q session", ErrInvalid, kind, surface)
 }
 
-// Surface reports the one surface the role may be exercised from.
+// Surface reports the one surface the role may be exercised from, read from the
+// role's own definition.
 func (r Role) Surface() (Surface, bool) {
-	surface, known := roleSurface[r]
-	return surface, known
+	definition, known := roleDefinitions[r]
+	return definition.surface, known
 }

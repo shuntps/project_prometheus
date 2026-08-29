@@ -67,19 +67,6 @@ func TestUnusableLoginAddressesAreRefused(t *testing.T) {
 	}
 }
 
-// TestVerificationStateIsSeparateFromTheAddress keeps proof of control distinct
-// from the address itself, and from identity proofing of any kind.
-func TestVerificationStateIsSeparateFromTheAddress(t *testing.T) {
-	address, err := iam.NormaliseEmail("user@example.com")
-	if err != nil {
-		t.Fatalf("normalising failed: %v", err)
-	}
-	identity := iam.EmailIdentity{Address: address}
-	if identity.IsVerified() {
-		t.Fatal("a freshly built identity reports itself verified")
-	}
-}
-
 // renderings collects every path a value could escape through. The probe is
 // searched for, never printed, so a failure never republishes the value.
 func renderings(t *testing.T, value any) map[string]string {
@@ -130,7 +117,12 @@ func TestTheLoginAddressNeverRendersItself(t *testing.T) {
 	}
 
 	assertRedacted(t, "the login address", address, probe)
-	assertRedacted(t, "an identity holding it", iam.EmailIdentity{Address: address}, probe)
+	// A record embedding the address must not expose it either, whatever the
+	// surrounding type is.
+	assertRedacted(t, "a record holding it", struct {
+		Label   string
+		Address iam.EmailAddress
+	}{Label: "probe", Address: address}, probe)
 
 	if address.Reveal() != probe {
 		t.Error("Reveal must still return the value the store persists")

@@ -41,10 +41,8 @@ func TestAResolvedRouteIsNamedByItsRegisteredPattern(t *testing.T) {
 	}
 }
 
-// TestATargetTheRouterResolvedToNothingNamesNothing exercises a genuinely unknown
-// target through the error handler, which is where an unresolved request lands.
-// No Use handler is registered: one would itself become the route "/" and hide
-// what the derivation does on its own.
+// TestATargetTheRouterResolvedToNothingNamesNothing drives a genuinely unknown
+// target; a Use handler would hide the case by becoming the route "/".
 func TestATargetTheRouterResolvedToNothingNamesNothing(t *testing.T) {
 	seen := make(chan string, 1)
 	matched := make(chan bool, 1)

@@ -4,9 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
-
-	"github.com/google/uuid"
 )
 
 // Redacted is what every sensitive value renders as. The real value is reached
@@ -60,17 +57,3 @@ func (e EmailAddress) LogValue() slog.Value { return slog.StringValue(Redacted) 
 func (e EmailAddress) MarshalText() ([]byte, error) { return []byte(Redacted), nil }
 
 func (e EmailAddress) MarshalJSON() ([]byte, error) { return []byte(`"` + Redacted + `"`), nil }
-
-// EmailIdentity binds a login address to an account and records whether it has
-// been proven. Verification state is separate from the address itself.
-type EmailIdentity struct {
-	ID         uuid.UUID
-	Account    AccountID
-	Address    EmailAddress
-	VerifiedAt *time.Time
-	CreatedAt  time.Time
-}
-
-// IsVerified reports whether control of the login address has been confirmed,
-// and reports nothing else.
-func (e EmailIdentity) IsVerified() bool { return e.VerifiedAt != nil }
