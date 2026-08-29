@@ -36,7 +36,7 @@ func TestThePartialAuthenticationSurfaceIsRefused(t *testing.T) {
 	}
 	limiter, err := ratelimit.NewAuthLimiter(ratelimit.AuthPolicy{
 		ClientAttempts: 10, IdentityAttempts: 5, Window: time.Minute, Capacity: ratelimit.MinAuthCapacity,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("building the limiter failed: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestAGlobalRefusalOnTheSurfaceStillForbidsCaching(t *testing.T) {
 		limiter, err := ratelimit.NewAuthLimiter(ratelimit.AuthPolicy{
 			ClientAttempts: ratelimit.MaxAuthAttempts, IdentityAttempts: ratelimit.MaxAuthAttempts,
 			Window: 15 * time.Minute, Capacity: ratelimit.MinAuthCapacity,
-		}, nil)
+		})
 		if err != nil {
 			t.Fatalf("building the limiter failed: %v", err)
 		}

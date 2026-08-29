@@ -21,7 +21,7 @@ func TestTheSpecialisedLimitBoundsAuthenticationUnderConcurrency(t *testing.T) {
 		limiter, err := ratelimit.NewAuthLimiter(ratelimit.AuthPolicy{
 			ClientAttempts: allowed, IdentityAttempts: 1_000,
 			Window: 15 * time.Minute, Capacity: ratelimit.MinAuthCapacity,
-		}, nil)
+		})
 		if err != nil {
 			t.Fatalf("building the limiter failed: %v", err)
 		}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 )
@@ -29,12 +30,14 @@ const (
 // Policy is a per-instance HTTP abuse policy. It is not a distributed limit:
 // each process enforces it against its own counters.
 type Policy struct {
-	Max            int
-	Window         time.Duration
-	Algorithm      Algorithm
-	NetworkMode    NetworkMode
-	ProxyHeader    string
-	TrustedProxies []netip.Prefix
+	Max         int
+	Window      time.Duration
+	Algorithm   Algorithm
+	NetworkMode NetworkMode
+	ProxyHeader string
+	// trustedProxies is unexported so that what Validate accepted stays what the
+	// server reads: a shared backing array would let a copy widen the allowlist.
+	trustedProxies []netip.Prefix
 }
 
 const (
@@ -68,19 +71,35 @@ func ParseAlgorithm(raw string) (Algorithm, bool) {
 	}
 }
 
-// SupportedProxyHeaders lists every forwarded header this service accepts.
-var SupportedProxyHeaders = []string{"X-Forwarded-For", "X-Real-Ip"}
+// proxyHeaders is the single authority on the forwarded headers this service
+// accepts, in the order a refusal lists them.
+var proxyHeaders = [...]string{"X-Forwarded-For", "X-Real-Ip"}
 
+// SupportedProxyHeaders returns the accepted forwarded headers. The caller
+// receives a copy, so the authority itself is never reachable for modification.
+func SupportedProxyHeaders() []string { return slices.Clone(proxyHeaders[:]) }
+
+// CanonicalProxyHeader resolves an operator value against that same authority,
+// so the advertised list and the rule that decides can never disagree.
 func CanonicalProxyHeader(raw string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "x-forwarded-for":
-		return "X-Forwarded-For", true
-	case "x-real-ip":
-		return "X-Real-Ip", true
-	default:
-		return "", false
+	folded := strings.ToLower(strings.TrimSpace(raw))
+	for _, header := range proxyHeaders {
+		if strings.ToLower(header) == folded {
+			return header, true
+		}
 	}
+	return "", false
 }
+
+// WithTrustedProxies returns the policy carrying its own copy of the allowlist,
+// so the caller's slice and the policy can never change one another.
+func (p Policy) WithTrustedProxies(prefixes ...netip.Prefix) Policy {
+	p.trustedProxies = slices.Clone(prefixes)
+	return p
+}
+
+// TrustedProxyCount reports how many prefixes the allowlist holds.
+func (p Policy) TrustedProxyCount() int { return len(p.trustedProxies) }
 
 func (p Policy) Validate() error {
 	if p.Max < MinMax || p.Max > MaxMax {
@@ -95,7 +114,7 @@ func (p Policy) Validate() error {
 
 	switch p.NetworkMode {
 	case Direct:
-		if len(p.TrustedProxies) > 0 || p.ProxyHeader != "" {
+		if len(p.trustedProxies) > 0 || p.ProxyHeader != "" {
 			return errors.New("rate limit policy: direct mode accepts no trusted proxies and no proxy header")
 		}
 		return nil
@@ -107,17 +126,22 @@ func (p Policy) Validate() error {
 }
 
 func (p Policy) validateProxySettings() error {
-	if len(p.TrustedProxies) == 0 {
+	if len(p.trustedProxies) == 0 {
 		return errors.New("rate limit policy: behind_proxy requires at least one trusted proxy")
 	}
-	for _, prefix := range p.TrustedProxies {
+	for _, prefix := range p.trustedProxies {
 		if !prefix.IsValid() {
 			return errors.New("rate limit policy: trusted proxy list carries an invalid prefix")
+		}
+		// A prefix carrying bits below its length reads as one host and trusts a
+		// whole network, so the ambiguity is refused rather than resolved.
+		if masked := prefix.Masked(); prefix != masked {
+			return fmt.Errorf("rate limit policy: trusted proxy %q sets bits below its prefix length and would trust %q", prefix, masked)
 		}
 	}
 	canonical, ok := CanonicalProxyHeader(p.ProxyHeader)
 	if !ok {
-		return fmt.Errorf("rate limit policy: proxy header %q is not one of %s", p.ProxyHeader, strings.Join(SupportedProxyHeaders, ", "))
+		return fmt.Errorf("rate limit policy: proxy header %q is not one of %s", p.ProxyHeader, strings.Join(SupportedProxyHeaders(), ", "))
 	}
 	if canonical != p.ProxyHeader {
 		return fmt.Errorf("rate limit policy: proxy header %q is not canonical, want %q", p.ProxyHeader, canonical)
@@ -127,8 +151,8 @@ func (p Policy) validateProxySettings() error {
 
 // TrustedProxyStrings renders the allowlist for consumers that take textual CIDRs.
 func (p Policy) TrustedProxyStrings() []string {
-	out := make([]string, 0, len(p.TrustedProxies))
-	for _, prefix := range p.TrustedProxies {
+	out := make([]string, 0, len(p.trustedProxies))
+	for _, prefix := range p.trustedProxies {
 		out = append(out, prefix.String())
 	}
 	return out

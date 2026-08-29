@@ -4,6 +4,7 @@ package authapi
 
 import (
 	"errors"
+	"net/http"
 
 	"github.com/gofiber/fiber/v3"
 
@@ -20,6 +21,13 @@ const (
 	broadcastAccessPath = "/api/v1/auth/broadcast-access"
 	activityPath        = "/api/v1/auth/session/activity"
 )
+
+// maxRequestBytes bounds this surface's own JSON far below what the server
+// accepts elsewhere: the largest useful body is one password and one address.
+const maxRequestBytes = 32 << 10
+
+// oversizedBodyMessage names the limit and nothing the request carried.
+const oversizedBodyMessage = "The request body exceeds the accepted size."
 
 // Options carries everything the authentication surface runs on. Every field is
 // required: the router refuses to mount the surface on a partial set.
@@ -59,11 +67,24 @@ func Register(app *fiber.App, opts Options) error {
 }
 
 func (s *authSurface) register(app *fiber.App) {
+	// Mounted once for the whole surface, after the global limiter so a refusal
+	// is still counted, and before every route so none of them can skip it.
+	app.Use(PathPrefix, limitRequestBody)
+
 	app.Post(sessionPath, s.signIn)
 	app.Delete(sessionPath, s.signOut)
 	app.Get(sessionPath, s.requirePermission(iam.PermissionOwnSessionRead, s.currentSession))
 	app.Get(broadcastAccessPath, s.requirePermission(iam.PermissionStreamBroadcast, grantedHandler))
 	app.Post(activityPath, s.recordActivity)
+}
+
+// limitRequestBody refuses an oversized body before anything decodes it, so no
+// use case, attempt counter, query or password hash is reached by one.
+func limitRequestBody(c fiber.Ctx) error {
+	if len(c.Body()) > maxRequestBytes {
+		return fiber.NewError(http.StatusRequestEntityTooLarge, oversizedBodyMessage)
+	}
+	return c.Next()
 }
 
 // NoStore is mounted ahead of the abuse limiter, so a refusal decided before any
