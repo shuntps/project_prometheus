@@ -1,4 +1,4 @@
-package application
+package auth
 
 import (
 	"context"
@@ -8,6 +8,20 @@ import (
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
+
+// Resolved is a session and the authority its account carries right now. Status
+// and roles are read on every resolution, never carried inside the token.
+type Resolved struct {
+	Session   session.Session
+	Principal iam.Principal
+}
+
+// Authenticated is a resolved session and the instant it was decided at. An
+// operation that must not observe a later clock is anchored to that instant.
+type Authenticated struct {
+	Resolved Resolved
+	At       time.Time
+}
 
 // SessionRepository is what the session use cases need from persistence. An
 // expected absence is a value; only an undecided operation is an error.

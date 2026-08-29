@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
@@ -42,13 +42,13 @@ func TestThePartialAuthenticationSurfaceIsRefused(t *testing.T) {
 	}
 	lifetimes := session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute}
 	repository := inertRepository{}
-	signIn, err := application.NewSignIn(application.SignInOptions{
+	signIn, err := auth.NewSignIn(auth.SignInOptions{
 		Repository: repository, Hasher: hasher, Limiter: limiter, Lifetimes: lifetimes,
 	})
 	if err != nil {
 		t.Fatalf("building the sign-in use case failed: %v", err)
 	}
-	sessions, err := application.NewSessions(application.SessionsOptions{
+	sessions, err := auth.NewSessions(auth.SessionsOptions{
 		Repository: repository, Lifetimes: lifetimes,
 	})
 	if err != nil {
@@ -175,16 +175,16 @@ func TestAGlobalRefusalOnTheSurfaceStillForbidsCaching(t *testing.T) {
 // for PostgreSQL. Reaching it would mean the refusal under test stopped working.
 type inertRepository struct{}
 
-func (inertRepository) CredentialByEmail(context.Context, iam.EmailAddress) (application.Credential, bool, error) {
-	return application.Credential{}, false, errUnexpectedRepositoryCall
+func (inertRepository) CredentialByEmail(context.Context, iam.EmailAddress) (auth.Credential, bool, error) {
+	return auth.Credential{}, false, errUnexpectedRepositoryCall
 }
 
-func (inertRepository) ResolveSession(context.Context, session.Token, time.Time) (application.Resolved, bool, error) {
-	return application.Resolved{}, false, errUnexpectedRepositoryCall
+func (inertRepository) ResolveSession(context.Context, session.Token, time.Time) (auth.Resolved, bool, error) {
+	return auth.Resolved{}, false, errUnexpectedRepositoryCall
 }
 
-func (inertRepository) ReplaceSession(context.Context, *session.ID, session.Session, time.Time) (application.Resolved, bool, error) {
-	return application.Resolved{}, false, errUnexpectedRepositoryCall
+func (inertRepository) ReplaceSession(context.Context, *session.ID, session.Session, time.Time) (auth.Resolved, bool, error) {
+	return auth.Resolved{}, false, errUnexpectedRepositoryCall
 }
 
 func (inertRepository) RevokeSession(context.Context, session.ID, time.Time) (bool, error) {

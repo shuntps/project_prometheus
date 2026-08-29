@@ -81,6 +81,9 @@ func TestSignOutRequiresTheSynchronizerToken(t *testing.T) {
 		if res.StatusCode != http.StatusForbidden {
 			t.Errorf("a %s CSRF token returned %d, want 403", name, res.StatusCode)
 		}
+		if message := messageOf(t, res); message != csrfTokenMessage {
+			t.Errorf("a %s CSRF token produced %q, want %q", name, message, csrfTokenMessage)
+		}
 		// The session must survive a refused sign-out.
 		check := s.send(t, request{method: http.MethodGet, target: sessionRoute, cookie: in.token, origin: publicOrigin})
 		if check.StatusCode != http.StatusOK {

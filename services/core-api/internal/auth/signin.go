@@ -1,4 +1,4 @@
-package application
+package auth
 
 import (
 	"context"
@@ -12,6 +12,27 @@ import (
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
+
+// Credential is what a login attempt needs in order to decide, and nothing more.
+type Credential struct {
+	Account  iam.AccountID
+	Kind     iam.Kind
+	Status   iam.Status
+	Password password.Encoded
+}
+
+// PasswordVerifier is the credential check. Hashing is required too: the decoy is
+// built with the very parameters a real credential is verified against.
+type PasswordVerifier interface {
+	Hash(plaintext string) (password.Encoded, error)
+	Verify(encoded password.Encoded, plaintext string) (rehash bool, err error)
+}
+
+// AttemptLimiter bounds attempts on a client dimension and an identifier
+// dimension at once; both must permit an attempt.
+type AttemptLimiter interface {
+	Allow(client, identifier string, now time.Time) bool
+}
 
 // SignInRepository is what signing in needs from persistence. An expected absence
 // is a value, never an error, so a missing record is never read as a failure.

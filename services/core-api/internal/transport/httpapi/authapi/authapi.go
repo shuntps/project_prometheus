@@ -7,7 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
@@ -24,14 +24,14 @@ const (
 // Options carries everything the authentication surface runs on. Every field is
 // required: the router refuses to mount the surface on a partial set.
 type Options struct {
-	SignIn   *application.SignIn
-	Sessions *application.Sessions
+	SignIn   *auth.SignIn
+	Sessions *auth.Sessions
 	Origin   browser.Origin
 }
 
 type authSurface struct {
-	signIns  *application.SignIn
-	sessions *application.Sessions
+	signIns  *auth.SignIn
+	sessions *auth.Sessions
 	origin   browser.Origin
 }
 

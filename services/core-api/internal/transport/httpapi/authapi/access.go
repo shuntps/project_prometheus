@@ -6,7 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/application"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
@@ -26,11 +26,11 @@ type sessionView struct {
 
 // currentSession writes nothing, so a top-level cross-site navigation carrying
 // the cookie under SameSite=Lax cannot renew an idle window.
-func (s *authSurface) currentSession(c fiber.Ctx, resolved application.Resolved) error {
+func (s *authSurface) currentSession(c fiber.Ctx, resolved auth.Resolved) error {
 	return c.JSON(viewOf(resolved.Session, resolved.Principal))
 }
 
-func grantedHandler(c fiber.Ctx, _ application.Resolved) error {
+func grantedHandler(c fiber.Ctx, _ auth.Resolved) error {
 	return c.JSON(fiber.Map{"granted": true})
 }
 
@@ -51,7 +51,7 @@ func viewOf(sess session.Session, principal iam.Principal) sessionView {
 
 // requirePermission resolves the caller from the cookie alone, then puts that
 // principal through the domain function. No header contributes to any of it.
-func (s *authSurface) requirePermission(permission iam.Permission, next func(fiber.Ctx, application.Resolved) error) fiber.Handler {
+func (s *authSurface) requirePermission(permission iam.Permission, next func(fiber.Ctx, auth.Resolved) error) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		token, held := sessionTokenFromRequest(c)
 		if !held {
@@ -64,11 +64,11 @@ func (s *authSurface) requirePermission(permission iam.Permission, next func(fib
 			return fiber.NewError(http.StatusInternalServerError)
 		}
 		switch outcome {
-		case application.OutcomeSucceeded:
+		case auth.OutcomeSucceeded:
 			return next(c, authenticated.Resolved)
-		case application.OutcomeUnauthenticated:
+		case auth.OutcomeUnauthenticated:
 			return fiber.NewError(http.StatusUnauthorized, authenticationRequired)
-		case application.OutcomeForbidden:
+		case auth.OutcomeForbidden:
 			return fiber.NewError(http.StatusForbidden, "The account may not perform this action.")
 		default:
 			return fiber.NewError(http.StatusInternalServerError)

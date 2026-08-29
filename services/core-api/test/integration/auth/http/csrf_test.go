@@ -18,23 +18,28 @@ func TestACrossSiteContextIsRefusedBeforeAnythingHappens(t *testing.T) {
 		name    string
 		request request
 		want    int
+		message string
 	}{
-		{"foreign origin", request{method: http.MethodPost, target: sessionRoute, origin: foreignOrigin, fetchSite: "cross-site"}, http.StatusForbidden},
-		{"absent origin", request{method: http.MethodPost, target: sessionRoute}, http.StatusForbidden},
-		{"null origin", request{method: http.MethodPost, target: sessionRoute, origin: "null"}, http.StatusForbidden},
-		{"sibling host", request{method: http.MethodPost, target: sessionRoute, origin: "https://app.example.com.attacker.example"}, http.StatusForbidden},
-		{"plain-text origin", request{method: http.MethodPost, target: sessionRoute, origin: "http://app.example.com"}, http.StatusForbidden},
-		{"cross-site fetch metadata", request{method: http.MethodPost, target: sessionRoute, origin: publicOrigin, fetchSite: "cross-site"}, http.StatusForbidden},
-		{"same-site fetch metadata", request{method: http.MethodPost, target: sessionRoute, origin: publicOrigin, fetchSite: "same-site"}, http.StatusForbidden},
-		{"form content type", request{method: http.MethodPost, target: sessionRoute, origin: publicOrigin, fetchSite: "same-origin", noJSON: true}, http.StatusUnsupportedMediaType},
+		{"foreign origin", request{method: http.MethodPost, target: sessionRoute, origin: foreignOrigin, fetchSite: "cross-site"}, http.StatusForbidden, crossSiteMessage},
+		{"absent origin", request{method: http.MethodPost, target: sessionRoute}, http.StatusForbidden, crossSiteMessage},
+		{"null origin", request{method: http.MethodPost, target: sessionRoute, origin: "null"}, http.StatusForbidden, crossSiteMessage},
+		{"sibling host", request{method: http.MethodPost, target: sessionRoute, origin: "https://app.example.com.attacker.example"}, http.StatusForbidden, crossSiteMessage},
+		{"plain-text origin", request{method: http.MethodPost, target: sessionRoute, origin: "http://app.example.com"}, http.StatusForbidden, crossSiteMessage},
+		{"cross-site fetch metadata", request{method: http.MethodPost, target: sessionRoute, origin: publicOrigin, fetchSite: "cross-site"}, http.StatusForbidden, crossSiteMessage},
+		{"same-site fetch metadata", request{method: http.MethodPost, target: sessionRoute, origin: publicOrigin, fetchSite: "same-site"}, http.StatusForbidden, crossSiteMessage},
+		{"form content type", request{method: http.MethodPost, target: sessionRoute, origin: publicOrigin, fetchSite: "same-origin", noJSON: true}, http.StatusUnsupportedMediaType, contentTypeReason},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			r := c.request
 			r.body = map[string]string{"email": address, "password": probePassword}
 			res := s.send(t, r)
+			message := messageOf(t, res)
 			if res.StatusCode != c.want {
-				t.Fatalf("returned %d, want %d: %s", res.StatusCode, c.want, bodyOf(t, res))
+				t.Fatalf("returned %d, want %d: %s", res.StatusCode, c.want, message)
+			}
+			if message != c.message {
+				t.Errorf("the client read %q, want %q", message, c.message)
 			}
 			if sessionCookie(res) != nil {
 				t.Error("a refused request still set a session cookie")
@@ -96,6 +101,9 @@ func TestOneSessionsCSRFTokenIsWorthlessAgainstAnother(t *testing.T) {
 		cookie: victim.token, csrf: attacker.csrf, origin: publicOrigin, fetchSite: "same-origin", contentType: "application/json"})
 	if res.StatusCode != http.StatusForbidden {
 		t.Fatalf("another session's CSRF token was accepted: %d", res.StatusCode)
+	}
+	if message := messageOf(t, res); message != csrfTokenMessage {
+		t.Errorf("a foreign token produced %q, want %q", message, csrfTokenMessage)
 	}
 	check := s.send(t, request{method: http.MethodGet, target: sessionRoute, cookie: victim.token, origin: publicOrigin})
 	if check.StatusCode != http.StatusOK {
