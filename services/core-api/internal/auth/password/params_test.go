@@ -24,7 +24,7 @@ func TestParametersUnderTheAdoptedFloorAreRefused(t *testing.T) {
 			if err := params.Validate(); !errors.Is(err, password.ErrInvalidParams) {
 				t.Fatalf("Validate gave %v, want a refusal", err)
 			}
-			if _, err := password.NewHasher(params, singleFactorPolicy(), nil); !errors.Is(err, password.ErrInvalidParams) {
+			if _, err := password.NewHasher(params, singleFactorPolicy()); !errors.Is(err, password.ErrInvalidParams) {
 				t.Fatalf("NewHasher gave %v, want a refusal", err)
 			}
 		})
@@ -118,6 +118,13 @@ func TestTheUpgradeDecisionIsExplicitOnEveryDimension(t *testing.T) {
 		"less memory, more time":   {password.Params{MemoryKiB: 19456, Iterations: 5, Lanes: 2}, false},
 		"parallelism alone raised": {password.Params{MemoryKiB: 32768, Iterations: 3, Lanes: 4}, false},
 		"parallelism alone cut":    {password.Params{MemoryKiB: 32768, Iterations: 3, Lanes: 1}, false},
+		// A change of lanes must not hold back a rise in cost, nor create one.
+		"more memory, lanes raised":     {password.Params{MemoryKiB: 65536, Iterations: 3, Lanes: 4}, true},
+		"more memory, lanes cut":        {password.Params{MemoryKiB: 65536, Iterations: 3, Lanes: 1}, true},
+		"more iterations, lanes raised": {password.Params{MemoryKiB: 32768, Iterations: 5, Lanes: 4}, true},
+		"more of both, lanes cut":       {password.Params{MemoryKiB: 65536, Iterations: 5, Lanes: 1}, true},
+		"less memory, lanes raised":     {password.Params{MemoryKiB: 19456, Iterations: 3, Lanes: 4}, false},
+		"less iterations, lanes cut":    {password.Params{MemoryKiB: 32768, Iterations: 2, Lanes: 1}, false},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

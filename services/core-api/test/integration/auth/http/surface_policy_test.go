@@ -30,7 +30,7 @@ func TestThePartialAuthenticationSurfaceIsRefused(t *testing.T) {
 	}
 	hasher, err := password.NewHasher(
 		password.Params{MemoryKiB: password.FloorMemoryKiB, Iterations: password.FloorIterations, Lanes: password.FloorLanes},
-		password.Policy{MinCodePoints: password.SingleFactorMinimum}, nil)
+		password.Policy{MinCodePoints: password.SingleFactorMinimum})
 	if err != nil {
 		t.Fatalf("building the hasher failed: %v", err)
 	}

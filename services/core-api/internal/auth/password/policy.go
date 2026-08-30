@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 var (
@@ -18,6 +20,9 @@ var (
 	ErrUnusable = errors.New("unusable password")
 	// ErrInvalidPolicy reports a length policy the package refuses to apply.
 	ErrInvalidPolicy = errors.New("invalid password policy")
+	// ErrEntropy reports that no salt could be drawn. It names nothing about the
+	// source that failed.
+	ErrEntropy = errors.New("no salt could be drawn")
 )
 
 // The floor is the current OWASP Password Storage guidance for Argon2id
@@ -26,6 +31,12 @@ const (
 	FloorMemoryKiB  uint32 = 19456
 	FloorIterations uint32 = 2
 	FloorLanes      uint8  = 1
+
+	// The ceilings reject unbounded or nonsensical cost settings; deployment-safe
+	// limits still require calibration. No other layer restates them.
+	ceilingMemoryKiB  uint32 = 1 << 21
+	ceilingIterations uint32 = 16
+	ceilingLanes      uint8  = 16
 
 	SaltLength uint32 = 16
 	KeyLength  uint32 = 32
@@ -61,16 +72,29 @@ func (p Policy) Validate() error {
 	return nil
 }
 
-// Check applies the policy to a password being created or changed. Each Unicode
-// code point counts as one character, as NIST SP 800-63B requires.
-func (p Policy) Check(plaintext string) error {
-	if err := CheckResourceLimit(plaintext); err != nil {
-		return err
-	}
-	if count := utf8.RuneCountInString(plaintext); count < p.MinCodePoints {
-		return fmt.Errorf("%w: the password is %d code points, and %d are required", ErrUnusable, count, p.MinCodePoints)
+// count applies the policy to an already normalised value, so the number of code
+// points is the one the stored representation was derived from. Each Unicode code
+// point counts as one character, as NIST SP 800-63B requires.
+func (p Policy) count(normalised string) error {
+	if n := utf8.RuneCountInString(normalised); n < p.MinCodePoints {
+		return fmt.Errorf("%w: the password is %d code points, and %d are required", ErrUnusable, n, p.MinCodePoints)
 	}
 	return nil
+}
+
+// prepare bounds the raw input, normalises it to NFC and bounds the result, so
+// one single form reaches the policy and the derivation alike.
+func prepare(plaintext string) (string, error) {
+	if err := CheckResourceLimit(plaintext); err != nil {
+		return "", err
+	}
+	// NFC decomposes canonically then recomposes what may be recomposed, so it can
+	// lengthen a value. It never trims, folds case or maps compatibility forms.
+	normalised := norm.NFC.String(plaintext)
+	if err := CheckResourceLimit(normalised); err != nil {
+		return "", err
+	}
+	return normalised, nil
 }
 
 // CheckResourceLimit is the only bound applied when verifying a stored
@@ -106,15 +130,16 @@ func (p Params) Validate() error {
 	if p.Lanes < FloorLanes {
 		problems = append(problems, fmt.Sprintf("parallelism must be at least %d", FloorLanes))
 	}
-	// An upper bound keeps a mistaken configuration from exhausting the host.
-	if p.MemoryKiB > 1<<21 {
-		problems = append(problems, "memory must not exceed 2 GiB")
+	// The bound below is an absolute operational limit this package imposes; what
+	// is safe for a given target still requires calibration.
+	if p.MemoryKiB > ceilingMemoryKiB {
+		problems = append(problems, fmt.Sprintf("memory must not exceed %d KiB", ceilingMemoryKiB))
 	}
-	if p.Iterations > 16 {
-		problems = append(problems, "iterations must not exceed 16")
+	if p.Iterations > ceilingIterations {
+		problems = append(problems, fmt.Sprintf("iterations must not exceed %d", ceilingIterations))
 	}
-	if p.Lanes > 16 {
-		problems = append(problems, "parallelism must not exceed 16")
+	if p.Lanes > ceilingLanes {
+		problems = append(problems, fmt.Sprintf("parallelism must not exceed %d", ceilingLanes))
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("%w: %s", ErrInvalidParams, strings.Join(problems, "; "))
@@ -122,12 +147,9 @@ func (p Params) Validate() error {
 	return nil
 }
 
-// strongerThan decides an upgrade, not any difference. A stored value at least as
-// costly is left alone, and a change of parallelism alone counts as incomparable.
+// strongerThan decides an upgrade on cost alone. Lanes are not treated as a
+// monotonic cost dimension; changing lanes alone is not considered an upgrade.
 func (target Params) strongerThan(stored Params) bool {
-	if target.Lanes != stored.Lanes {
-		return false
-	}
 	if target.MemoryKiB < stored.MemoryKiB || target.Iterations < stored.Iterations {
 		return false
 	}

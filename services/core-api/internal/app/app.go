@@ -47,7 +47,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		return nil, errors.New("the public origin is required")
 	}
 
-	hasher, err := password.NewHasher(cfg.Auth.Password.Params, cfg.Auth.Password.Policy, nil)
+	hasher, err := password.NewHasher(cfg.Auth.Password.Params, cfg.Auth.Password.Policy)
 	if err != nil {
 		return nil, err
 	}
