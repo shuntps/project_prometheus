@@ -250,9 +250,9 @@ func TestAResolutionReportsNoRoleForAnAccountHoldingNone(t *testing.T) {
 	}
 }
 
-// TestAResolutionReportsEveryGrantOnceInTheApplicationOrder grants the roles in
-// the reverse of the order it requires, so neither the fixture nor the statement
-// can supply the answer the application is responsible for.
+// TestAResolutionReportsEveryGrantOnceInTheApplicationOrder exercises the real
+// PostgreSQL adapter and requires every current grant exactly once in the
+// application's canonical order.
 func TestAResolutionReportsEveryGrantOnceInTheApplicationOrder(t *testing.T) {
 	store, _ := freshStore(t)
 	now := time.Now().UTC().Truncate(time.Second)

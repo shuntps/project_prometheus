@@ -165,9 +165,9 @@ func TestASessionReadWritesNothing(t *testing.T) {
 	}
 }
 
-// TestServedRolesCarryTheApplicationOrder grants the roles in the reverse of the
-// order both answers must carry, so the sequence can only come from the sort the
-// application applies. Sign-in and the session read take different store paths.
+// TestServedRolesCarryTheApplicationOrder requires both public answers to use
+// the same canonical role sequence. Sign-in and session reads take different
+// store paths.
 func TestServedRolesCarryTheApplicationOrder(t *testing.T) {
 	s := newSurface(t)
 	address, _ := s.account(t, iam.KindCreator, iam.StatusActive, iam.RoleViewer, iam.RoleCreator)
