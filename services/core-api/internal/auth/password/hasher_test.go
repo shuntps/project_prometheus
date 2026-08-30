@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -26,7 +27,7 @@ func singleFactorPolicy() password.Policy {
 
 func mustHasherWith(t *testing.T, params password.Params, policy password.Policy) *password.Hasher {
 	t.Helper()
-	hasher, err := password.NewHasher(params, policy, nil)
+	hasher, err := password.NewHasher(params, policy)
 	if err != nil {
 		t.Fatalf("building the hasher failed: %v", err)
 	}
@@ -35,7 +36,7 @@ func mustHasherWith(t *testing.T, params password.Params, policy password.Policy
 
 func mustHasher(t *testing.T, params password.Params) *password.Hasher {
 	t.Helper()
-	hasher, err := password.NewHasher(params, singleFactorPolicy(), nil)
+	hasher, err := password.NewHasher(params, singleFactorPolicy())
 	if err != nil {
 		t.Fatalf("building the hasher failed: %v", err)
 	}
@@ -173,6 +174,37 @@ func TestUnicodeAndSpacesSurviveWhole(t *testing.T) {
 				shortened := string(runes[:len(runes)-1])
 				if _, err := hasher.Verify(encoded, shortened); err == nil {
 					t.Error("a shortened password was accepted; the input is being truncated")
+				}
+			}
+		})
+	}
+}
+
+// TestOnlyWhatProductionCallsIsExported keeps a method from being kept for a
+// test's convenience: every exported method of each type is listed here.
+func TestOnlyWhatProductionCallsIsExported(t *testing.T) {
+	for _, surface := range []struct {
+		name string
+		typ  reflect.Type
+		want map[string]bool
+	}{
+		{"*Hasher", reflect.TypeOf(mustHasher(t, floorParams())), map[string]bool{"Hash": true, "Verify": true}},
+		{"Policy", reflect.TypeOf(singleFactorPolicy()), map[string]bool{"Validate": true}},
+		{"Params", reflect.TypeOf(floorParams()), map[string]bool{"Validate": true}},
+	} {
+		t.Run(surface.name, func(t *testing.T) {
+			got := map[string]bool{}
+			for i := range surface.typ.NumMethod() {
+				got[surface.typ.Method(i).Name] = true
+			}
+			for name := range got {
+				if !surface.want[name] {
+					t.Errorf("%s exports %q, which no production caller uses", surface.name, name)
+				}
+			}
+			for name := range surface.want {
+				if !got[name] {
+					t.Errorf("%s no longer exports %q", surface.name, name)
 				}
 			}
 		})

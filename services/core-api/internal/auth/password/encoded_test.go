@@ -125,3 +125,71 @@ func TestTheStoredRepresentationNeverRendersItself(t *testing.T) {
 		t.Error("Reveal must still return the value the store persists")
 	}
 }
+
+// TestARepresentationLongerThanTheFormatIsRefusedOnItsLength keeps the bound in
+// this package rather than in whatever store happens to hold the value.
+func TestARepresentationLongerThanTheFormatIsRefusedOnItsLength(t *testing.T) {
+	hasher := mustHasher(t, floorParams())
+	legitimate, err := hasher.Hash(probePassword)
+	if err != nil {
+		t.Fatalf("hashing failed: %v", err)
+	}
+	if n := len(legitimate.Reveal()); n < 90 || n > 110 {
+		t.Fatalf("a legitimate representation is %d characters, outside the expected 97..101", n)
+	}
+
+	oversized := password.NewEncoded(legitimate.Reveal() + strings.Repeat("A", 1<<20))
+	_, err = hasher.Verify(oversized, probePassword)
+	if !errors.Is(err, password.ErrMalformed) {
+		t.Fatalf("an oversized representation gave %v, want a malformed refusal", err)
+	}
+	if !strings.Contains(err.Error(), "longer than the format allows") {
+		t.Fatalf("the refusal %q does not name the length, so nothing bounds it before parsing", err)
+	}
+}
+
+// TestTheZeroRepresentationIsRecognised covers the accessor the store uses to
+// decide whether an account is being created with a credential.
+func TestTheZeroRepresentationIsRecognised(t *testing.T) {
+	if !(password.Encoded{}).IsZero() {
+		t.Error("the zero representation does not report itself as zero")
+	}
+	if !password.NewEncoded("").IsZero() {
+		t.Error("an empty representation does not report itself as zero")
+	}
+	hasher := mustHasher(t, floorParams())
+	encoded, err := hasher.Hash(probePassword)
+	if err != nil {
+		t.Fatalf("hashing failed: %v", err)
+	}
+	if encoded.IsZero() {
+		t.Error("a derived representation reports itself as zero")
+	}
+}
+
+// TestTheRepresentationIsRedactedThroughTextEncoders completes the redaction
+// matrix with the encoder that has no test of its own.
+func TestTheRepresentationIsRedactedThroughTextEncoders(t *testing.T) {
+	hasher := mustHasher(t, floorParams())
+	encoded, err := hasher.Hash(probePassword)
+	if err != nil {
+		t.Fatalf("hashing failed: %v", err)
+	}
+	probe := encoded.Reveal()
+
+	text, err := encoded.MarshalText()
+	if err != nil {
+		t.Fatalf("marshalling failed: %v", err)
+	}
+	if strings.Contains(string(text), probe) {
+		t.Error("MarshalText carries the stored representation")
+	}
+	// A map key goes through TextMarshaler rather than through MarshalJSON.
+	keyed, err := json.Marshal(map[password.Encoded]string{encoded: "value"})
+	if err != nil {
+		t.Fatalf("encoding failed: %v", err)
+	}
+	if strings.Contains(string(keyed), probe) {
+		t.Error("the representation escaped as a JSON object key")
+	}
+}

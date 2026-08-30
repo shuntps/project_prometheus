@@ -18,7 +18,8 @@ type Encoded struct {
 // NewEncoded wraps a representation read back from storage.
 func NewEncoded(raw string) Encoded { return Encoded{value: raw} }
 
-// Reveal returns the representation. Only storage and verification call this.
+// Reveal returns the representation. Only the store that persists it calls this;
+// verification reads the value inside this package.
 func (e Encoded) Reveal() string { return e.value }
 
 func (e Encoded) IsZero() bool { return e.value == "" }
@@ -45,7 +46,24 @@ func encode(p Params, salt, key []byte) string {
 		encoding.EncodeToString(salt), encoding.EncodeToString(key))
 }
 
+// The bound on a representation is this package's own grammar, written out piece
+// by piece so a changed ceiling, version or size turns the internal test red.
+const (
+	widestHeader     = "$argon2id$v=19$"     // argon2.Version is 19
+	widestParameters = "m=2097152,t=16,p=16" // the ceilings above, at their widest
+	// Unpadded Base64 spends one character per six bits, rounded up.
+	saltCharacters = (int(SaltLength)*8 + 5) / 6
+	keyCharacters  = (int(KeyLength)*8 + 5) / 6
+	// Header, parameters, a separator, the salt, a separator, the derived key.
+	maxEncodedLength = len(widestHeader) + len(widestParameters) + 1 + saltCharacters + 1 + keyCharacters
+)
+
 func decode(encoded string) (Params, []byte, []byte, error) {
+	// Bounded before anything splits it: the guarantee belongs to this package and
+	// does not depend on what a store happens to constrain.
+	if len(encoded) > maxEncodedLength {
+		return Params{}, nil, nil, fmt.Errorf("%w: the representation is longer than the format allows", ErrMalformed)
+	}
 	fields := strings.Split(encoded, "$")
 	if len(fields) != 6 || fields[0] != "" || fields[1] != "argon2id" {
 		return Params{}, nil, nil, fmt.Errorf("%w: the representation is not an argon2id PHC string", ErrMalformed)

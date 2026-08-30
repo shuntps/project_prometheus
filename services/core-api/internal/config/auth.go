@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -31,6 +32,22 @@ const (
 	devAuthCapacity         = int64(65_536)
 )
 
+// The configuration group each domain refusal belongs to. A domain error knows
+// nothing of environment variable names, so the loader attaches the group.
+const (
+	memoryKey            = "PASSWORD_ARGON2_MEMORY_KIB"
+	iterationsKey        = "PASSWORD_ARGON2_ITERATIONS"
+	lanesKey             = "PASSWORD_ARGON2_LANES"
+	minLengthKey         = "PASSWORD_MIN_LENGTH"
+	absoluteLifetimeKey  = "SESSION_ABSOLUTE_LIFETIME"
+	idleLifetimeKey      = "SESSION_IDLE_LIFETIME"
+	activityIntervalKey  = "SESSION_ACTIVITY_INTERVAL"
+	clientAttemptsKey    = "AUTH_RATE_LIMIT_CLIENT_ATTEMPTS"
+	identityAttemptsKey  = "AUTH_RATE_LIMIT_IDENTITY_ATTEMPTS"
+	rateLimitWindowKey   = "AUTH_RATE_LIMIT_WINDOW"
+	rateLimitCapacityKey = "AUTH_RATE_LIMIT_CAPACITY"
+)
+
 // PasswordSettings is the adopted password posture. The hashing parameters are
 // versioned by being carried inside every stored representation.
 type PasswordSettings struct {
@@ -46,21 +63,32 @@ type AuthSettings struct {
 	RateLimit ratelimit.AuthPolicy
 }
 
-// Validate delegates each floor to the package that owns it, so no configuration
-// path can define its own weaker rule.
+// domainCheck ties one configuration group to the domain that decides it. The
+// domain remains the only authority on whether a value is acceptable.
+type domainCheck struct {
+	keys  []string
+	check func() error
+}
+
+// domainChecks is the single inventory both validation boundaries consume, so an
+// entry cannot be added to one boundary without reaching the other.
+func (a AuthSettings) domainChecks() []domainCheck {
+	return []domainCheck{
+		{[]string{memoryKey, iterationsKey, lanesKey}, a.Password.Params.Validate},
+		{[]string{minLengthKey}, a.Password.Policy.Validate},
+		{[]string{absoluteLifetimeKey, idleLifetimeKey, activityIntervalKey}, a.Session.Validate},
+		{[]string{clientAttemptsKey, identityAttemptsKey, rateLimitWindowKey, rateLimitCapacityKey}, a.RateLimit.Validate},
+	}
+}
+
+// Validate delegates every authentication rule to the package that owns it, so no
+// configuration path can define a weaker rule.
 func (a AuthSettings) Validate() error {
 	var problems []string
-	if err := a.Password.Params.Validate(); err != nil {
-		problems = append(problems, err.Error())
-	}
-	if err := a.Password.Policy.Validate(); err != nil {
-		problems = append(problems, err.Error())
-	}
-	if err := a.Session.Validate(); err != nil {
-		problems = append(problems, err.Error())
-	}
-	if err := a.RateLimit.Validate(); err != nil {
-		problems = append(problems, err.Error())
+	for _, domain := range a.domainChecks() {
+		if err := domain.check(); err != nil {
+			problems = append(problems, err.Error())
+		}
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("%w: %s", ErrInvalid, strings.Join(problems, "; "))
@@ -81,10 +109,12 @@ func loadAuth(lookup Lookup, env Environment) (AuthSettings, []string) {
 		max int64
 		out *int64
 	}{
-		{"PASSWORD_ARGON2_MEMORY_KIB", devPasswordMemoryKiB, 1, 1 << 22, new(int64)},
-		{"PASSWORD_ARGON2_ITERATIONS", devPasswordIterations, 1, 64, new(int64)},
-		{"PASSWORD_ARGON2_LANES", devPasswordLanes, 1, 64, new(int64)},
-		{"PASSWORD_MIN_LENGTH", devPasswordMinLength, 1, password.MaxBytes, new(int64)},
+		// The bounds below are what the target type can hold, nothing more: the
+		// password package owns every floor and ceiling and states them once.
+		{memoryKey, devPasswordMemoryKiB, 0, math.MaxUint32, new(int64)},
+		{iterationsKey, devPasswordIterations, 0, math.MaxUint32, new(int64)},
+		{lanesKey, devPasswordLanes, 0, math.MaxUint8, new(int64)},
+		{minLengthKey, devPasswordMinLength, 0, math.MaxInt, new(int64)},
 		{"AUTH_RATE_LIMIT_CLIENT_ATTEMPTS", devAuthClientAttempts, ratelimit.MinAuthAttempts, ratelimit.MaxAuthAttempts, new(int64)},
 		{"AUTH_RATE_LIMIT_IDENTITY_ATTEMPTS", devAuthIdentityAttempts, ratelimit.MinAuthAttempts, ratelimit.MaxAuthAttempts, new(int64)},
 		{"AUTH_RATE_LIMIT_CAPACITY", devAuthCapacity, ratelimit.MinAuthCapacity, ratelimit.MaxAuthCapacity, new(int64)},
@@ -158,8 +188,15 @@ func loadAuth(lookup Lookup, env Environment) (AuthSettings, []string) {
 			Capacity:         int(*counts[6].out),
 		},
 	}
-	if err := settings.Validate(); err != nil {
-		return AuthSettings{}, []string{err.Error()}
+	// The same inventory the settings validate themselves with, asked once per
+	// domain, with the configuration group added to whatever the domain decides.
+	for _, domain := range settings.domainChecks() {
+		if err := domain.check(); err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v", strings.Join(domain.keys, ", "), err))
+		}
+	}
+	if len(problems) > 0 {
+		return AuthSettings{}, problems
 	}
 	return settings, nil
 }

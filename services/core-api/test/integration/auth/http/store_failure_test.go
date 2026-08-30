@@ -103,7 +103,7 @@ func once(n int) func() error {
 func TestAStoreFailureIsNeverReportedAsACredentialVerdict(t *testing.T) {
 	inner, err := password.NewHasher(
 		password.Params{MemoryKiB: password.FloorMemoryKiB, Iterations: password.FloorIterations, Lanes: password.FloorLanes},
-		password.Policy{MinCodePoints: password.SingleFactorMinimum}, nil)
+		password.Policy{MinCodePoints: password.SingleFactorMinimum})
 	if err != nil {
 		t.Fatalf("building the hasher failed: %v", err)
 	}

@@ -282,7 +282,7 @@ func TestActivityIsRefusedByARoleWithdrawnMidRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("building the store failed: %v", err)
 	}
-	hasher, err := password.NewHasher(cfg.Auth.Password.Params, cfg.Auth.Password.Policy, nil)
+	hasher, err := password.NewHasher(cfg.Auth.Password.Params, cfg.Auth.Password.Policy)
 	if err != nil {
 		t.Fatalf("building the hasher failed: %v", err)
 	}

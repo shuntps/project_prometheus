@@ -5,7 +5,6 @@ package password
 import (
 	"crypto/rand"
 	"crypto/subtle"
-	"errors"
 	"io"
 
 	"golang.org/x/crypto/argon2"
@@ -19,38 +18,42 @@ type Hasher struct {
 }
 
 // NewHasher refuses parameters or a policy under the floor rather than
-// correcting them.
-func NewHasher(params Params, policy Policy, random io.Reader) (*Hasher, error) {
+// correcting them. It is the only way in, and always draws from the process source.
+func NewHasher(params Params, policy Policy) (*Hasher, error) {
+	return newHasher(params, policy, rand.Reader)
+}
+
+// newHasher takes the entropy source so that the failure path Hash depends on
+// stays provable. It is unexported: no caller outside this package may choose it.
+func newHasher(params Params, policy Policy, random io.Reader) (*Hasher, error) {
 	if err := params.Validate(); err != nil {
 		return nil, err
 	}
 	if err := policy.Validate(); err != nil {
 		return nil, err
 	}
-	if random == nil {
-		random = rand.Reader
-	}
 	return &Hasher{params: params, policy: policy, random: random}, nil
 }
-
-// Policy reports what a new password must satisfy.
-func (h *Hasher) Policy() Policy { return h.policy }
-
-// Params reports the settings new representations are written with.
-func (h *Hasher) Params() Params { return h.params }
 
 // Hash derives a representation with a fresh random salt, so two identical
 // passwords never produce the same stored value.
 func (h *Hasher) Hash(plaintext string) (Encoded, error) {
-	if err := h.policy.Check(plaintext); err != nil {
+	// The password is settled before any entropy is drawn, so an unusable one
+	// never consumes from the source.
+	normalised, err := prepare(plaintext)
+	if err != nil {
+		return Encoded{}, err
+	}
+	if err := h.policy.count(normalised); err != nil {
 		return Encoded{}, err
 	}
 	salt := make([]byte, SaltLength)
 	if _, err := io.ReadFull(h.random, salt); err != nil {
-		// No detail is carried: the caller must not learn anything about entropy.
-		return Encoded{}, errors.New("no salt could be drawn")
+		// The sentinel is fixed: the caller learns that nothing was derived and
+		// nothing about the source that failed.
+		return Encoded{}, ErrEntropy
 	}
-	key := argon2.IDKey([]byte(plaintext), salt, h.params.Iterations, h.params.MemoryKiB, h.params.Lanes, KeyLength)
+	key := argon2.IDKey([]byte(normalised), salt, h.params.Iterations, h.params.MemoryKiB, h.params.Lanes, KeyLength)
 	return Encoded{value: encode(h.params, salt, key)}, nil
 }
 
@@ -61,13 +64,14 @@ func (h *Hasher) Verify(encoded Encoded, plaintext string) (rehash bool, err err
 	if err != nil {
 		return false, err
 	}
-	// Only the resource limit applies here: a credential stored under an older,
-	// shorter minimum must stay verifiable after the minimum rises.
-	if err := CheckResourceLimit(plaintext); err != nil {
+	// Only the resource limit applies here, and the value is normalised exactly as
+	// it was: a credential stored under an older minimum stays verifiable.
+	normalised, err := prepare(plaintext)
+	if err != nil {
 		return false, err
 	}
 
-	candidate := argon2.IDKey([]byte(plaintext), salt, stored.Iterations, stored.MemoryKiB, stored.Lanes, uint32(len(key)))
+	candidate := argon2.IDKey([]byte(normalised), salt, stored.Iterations, stored.MemoryKiB, stored.Lanes, uint32(len(key)))
 	if subtle.ConstantTimeCompare(candidate, key) != 1 {
 		return false, ErrMismatch
 	}
