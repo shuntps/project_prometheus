@@ -1,8 +1,11 @@
+import type { ReactNode } from "react";
+
 import { siteName } from "@/config/site";
 import { Container } from "@/components/ui/container";
 import { landingContent } from "../content";
 
-export function SiteHeader() {
+/* accountAction is a neutral slot: this feature knows nothing of what fills it. */
+export function SiteHeader({ accountAction }: { accountAction?: ReactNode }) {
   return (
     <header className="border-b border-outline">
       <Container>
@@ -22,6 +25,7 @@ export function SiteHeader() {
               ))}
             </ul>
           </nav>
+          {accountAction !== undefined && <div className="ml-auto">{accountAction}</div>}
         </div>
       </Container>
     </header>
