@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+
+# A filter that matches nothing is an error, never a silent success.
+failIfNoMatch: true
+
+# Postinstall scripts run arbitrary code, so each is an explicit decision.
+allowBuilds:
+  sharp: false
+  unrs-resolver: false

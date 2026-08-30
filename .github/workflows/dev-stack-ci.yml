@@ -1,0 +1,62 @@
+name: Dev stack CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths: &stack-paths
+      - "Makefile"
+      - "compose.dev.yaml"
+      - "scripts/dev/check-stack.mjs"
+      - "apps/web/**"
+      - "services/core-api/**"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/dev-stack-ci.yml"
+  push:
+    branches: [main]
+    paths: *stack-paths
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-stack-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stack:
+    name: Dev stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The stack needs Docker with Compose, GNU Make and a POSIX awk on the host.
+      - name: Check the host
+        timeout-minutes: 5
+        run: make dev-doctor
+
+      - name: Start the stack
+        timeout-minutes: 20
+        run: make dev-up
+
+      - name: Check the stack
+        timeout-minutes: 5
+        run: make dev-check
+
+      # Produced before the containers are destroyed, so a failure stays readable.
+      - name: Report the stack
+        if: failure()
+        timeout-minutes: 5
+        run: |
+          docker compose -f compose.dev.yaml ps --all || true
+          docker compose -f compose.dev.yaml logs --no-color || true
+
+      - name: Stop the stack
+        if: always()
+        timeout-minutes: 5
+        run: make dev-down

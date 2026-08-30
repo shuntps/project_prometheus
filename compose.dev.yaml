@@ -1,0 +1,144 @@
+name: prometheus-dev
+
+# Development values only. Every credential here is fictitious and local.
+x-core-api-environment: &core-api-environment
+  APP_ENV: development
+  LOG_LEVEL: info
+  HTTP_ADDRESS: ":8080"
+  DATABASE_URL: postgres://core_api:local-development-only@postgres:5432/core_api
+  DATABASE_TLS_MODE: disable
+  PUBLIC_ORIGIN: http://localhost:${WEB_PORT:-3000}
+  RATE_LIMIT_MAX: "100"
+  RATE_LIMIT_WINDOW: 1m
+  RATE_LIMIT_ALGORITHM: fixed_window
+  NETWORK_MODE: direct
+  PASSWORD_ARGON2_MEMORY_KIB: "19456"
+  PASSWORD_ARGON2_ITERATIONS: "2"
+  PASSWORD_ARGON2_LANES: "1"
+  PASSWORD_MIN_LENGTH: "15"
+  SESSION_ABSOLUTE_LIFETIME: 12h
+  SESSION_IDLE_LIFETIME: 30m
+  SESSION_ACTIVITY_INTERVAL: 1m
+  AUTH_RATE_LIMIT_CLIENT_ATTEMPTS: "10"
+  AUTH_RATE_LIMIT_IDENTITY_ATTEMPTS: "5"
+  AUTH_RATE_LIMIT_WINDOW: 15m
+  AUTH_RATE_LIMIT_CAPACITY: "65536"
+
+services:
+  postgres:
+    image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    environment:
+      POSTGRES_DB: core_api
+      POSTGRES_USER: core_api
+      POSTGRES_PASSWORD: local-development-only
+    # PostgreSQL 18 images expect the mount one level up and place the cluster in
+    # a version-named subdirectory, so an upgrade can relink across it.
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U core_api -d core_api"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    stop_grace_period: 10s
+
+  # One-shot. Schema change stays a deliberate step and never runs inside the API.
+  migrate:
+    build:
+      context: services/core-api
+      target: development
+    command: ["go", "run", "./cmd/migrate"]
+    environment: *core-api-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  core-api:
+    build:
+      context: services/core-api
+      target: development
+    environment: *core-api-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/readyz"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    stop_grace_period: 20s
+    # The three files a rebuild depends on are excluded from the broad rule, so
+    # one change never triggers two overlapping actions.
+    develop:
+      watch:
+        - action: sync+restart
+          path: services/core-api
+          target: /src
+          ignore:
+            - bin/
+            - "*_test.go"
+            - Dockerfile
+            - go.mod
+            - go.sum
+        - action: rebuild
+          path: services/core-api/Dockerfile
+        - action: rebuild
+          path: services/core-api/go.mod
+        - action: rebuild
+          path: services/core-api/go.sum
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: development
+    environment:
+      SITE_NAME: Example Platform
+      CORE_API_INTERNAL_ORIGIN: http://core-api:8080
+    # Loopback only: the browser reaches one origin and nothing else is published.
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    depends_on:
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    stop_grace_period: 10s
+    # Only the sources and three configuration files are synchronised, so no
+    # local environment file can reach the container.
+    develop:
+      watch:
+        - action: sync
+          path: apps/web/src
+          target: /repository/apps/web/src
+        - action: sync+restart
+          path: apps/web/next.config.ts
+          target: /repository/apps/web/next.config.ts
+        - action: sync+restart
+          path: apps/web/postcss.config.mjs
+          target: /repository/apps/web/postcss.config.mjs
+        - action: sync+restart
+          path: apps/web/tsconfig.json
+          target: /repository/apps/web/tsconfig.json
+        - action: rebuild
+          path: apps/web/Dockerfile
+        - action: rebuild
+          path: apps/web/Dockerfile.dockerignore
+        - action: rebuild
+          path: apps/web/package.json
+        - action: rebuild
+          path: package.json
+        - action: rebuild
+          path: pnpm-workspace.yaml
+        - action: rebuild
+          path: pnpm-lock.yaml
+
+volumes:
+  postgres-data:

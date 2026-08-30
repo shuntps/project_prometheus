@@ -1,7 +1,10 @@
 version: 2
 
-# Only the ecosystems actually present in this repository are declared. Security
-# updates are a separate mechanism and are not configured here.
+# One entry per manifest kind and location this repository actually contains.
+# These entries enable and schedule version updates. The groups below carry no
+# applies-to, so they cover version updates alone. Security updates are enabled
+# in the repository settings, though some options here can still shape their
+# pull requests.
 updates:
   - package-ecosystem: gomod
     directory: /services/core-api
@@ -21,6 +24,29 @@ updates:
     open-pull-requests-limit: 3
     groups:
       docker-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # The lockfile lives at the workspace root and covers every package in it.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker
+    directory: /apps/web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      web-docker-minor-and-patch:
         update-types:
           - minor
           - patch
