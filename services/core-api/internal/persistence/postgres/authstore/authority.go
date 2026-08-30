@@ -66,28 +66,3 @@ func grantsOf(ctx context.Context, tx pgx.Tx, account iam.AccountID) ([]iam.Role
 	}
 	return roles, nil
 }
-
-func (s *Store) roles(ctx context.Context, account iam.AccountID) ([]iam.Role, error) {
-	const query = `SELECT role FROM account_role_grants WHERE account_id = $1 ORDER BY role`
-	rows, err := s.pool.Query(ctx, query, uuid.UUID(account))
-	if err != nil {
-		return nil, ErrStore
-	}
-	defer rows.Close()
-
-	var roles []iam.Role
-	for rows.Next() {
-		var raw string
-		if err := rows.Scan(&raw); err != nil {
-			return nil, ErrStore
-		}
-		// An unknown stored value is dropped rather than trusted as a role.
-		if role, known := iam.ParseRole(raw); known {
-			roles = append(roles, role)
-		}
-	}
-	if rows.Err() != nil {
-		return nil, ErrStore
-	}
-	return roles, nil
-}
