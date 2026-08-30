@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -97,8 +98,8 @@ func TestADecoySeedThatCannotBeDrawnBuildsNoUseCase(t *testing.T) {
 // countingRepository answers a sign-in with a usable credential and records
 // whether the replacement was ever reached.
 type countingRepository struct {
-	credential  Credential
-	replacments int
+	credential   Credential
+	replacements int
 }
 
 func (r *countingRepository) CredentialByEmail(context.Context, iam.EmailAddress) (Credential, bool, error) {
@@ -110,7 +111,7 @@ func (r *countingRepository) ResolveSession(context.Context, session.Token, time
 }
 
 func (r *countingRepository) ReplaceSession(context.Context, *session.ID, session.Session, time.Time) (Resolved, bool, error) {
-	r.replacments++
+	r.replacements++
 	return Resolved{}, true, nil
 }
 
@@ -136,6 +137,14 @@ func TestAFailedEmissionIsTranslatedByExecute(t *testing.T) {
 		Password: password.NewEncoded("stored"),
 	}}
 
+	opts := usableOptions()
+	opts.Repository = repository
+	opts.Hasher = acceptingHasher{}
+	// The expected arguments are taken before the use case is built, so the proof
+	// never compares the emitter against a value the use case could have changed.
+	wantLifetimes := opts.Lifetimes
+	wantInstant := opts.Now().UTC()
+
 	sentinel := errors.New("the emitter refused")
 	calls := 0
 	failing := func(a iam.AccountID, k iam.Kind, sf iam.Surface, l session.Lifetimes, at time.Time) (session.Session, session.Token, error) {
@@ -143,12 +152,15 @@ func TestAFailedEmissionIsTranslatedByExecute(t *testing.T) {
 		if a != account || k != iam.KindViewer || sf != iam.SurfacePublic {
 			t.Errorf("the emitter was called with %v %q %q", a, k, sf)
 		}
+		if l != wantLifetimes {
+			t.Errorf("the emitter was called with the lifetimes %+v, want %+v", l, wantLifetimes)
+		}
+		if !at.Equal(wantInstant) {
+			t.Errorf("the emitter was called at %s, want %s", at, wantInstant)
+		}
 		return session.Session{}, session.Token{}, sentinel
 	}
 
-	opts := usableOptions()
-	opts.Repository = repository
-	opts.Hasher = acceptingHasher{}
 	built, err := newSignIn(opts, constantReader{}, failing)
 	if err != nil {
 		t.Fatalf("building the use case failed: %v", err)
@@ -163,11 +175,14 @@ func TestAFailedEmissionIsTranslatedByExecute(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("the injected emitter was called %d time(s), want exactly 1", calls)
 	}
-	if repository.replacments != 0 {
-		t.Errorf("the replacement was reached %d time(s) after a failed emission", repository.replacments)
+	if repository.replacements != 0 {
+		t.Errorf("the replacement was reached %d time(s) after a failed emission", repository.replacements)
 	}
-	if result.Outcome != OutcomeUnknown || !result.Token.IsZero() || !result.Session.ID.IsZero() {
-		t.Errorf("a usable result was returned after a failed emission: %+v", result)
+	// Nothing of the result may survive a failed emission: not the outcome, not
+	// the token, not any field of the session, not the principal.
+	if !reflect.DeepEqual(result, SignInResult{}) {
+		// Every secret this struct can hold redacts itself when rendered.
+		t.Errorf("a non-zero result was returned after a failed emission: %+v", result)
 	}
 	if strings.Contains(err.Error(), sentinel.Error()) {
 		t.Errorf("the refusal %q carries the emitter's own failure", err)
