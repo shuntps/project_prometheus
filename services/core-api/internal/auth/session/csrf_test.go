@@ -87,12 +87,14 @@ func TestComparisonRefusesAnyValueThatIsNotTheIssuedOne(t *testing.T) {
 	if zero.Equals(zero) || zero.Equals(issued) || issued.Equals(zero) {
 		t.Fatal("the zero token satisfied a comparison")
 	}
-	// A value differing only in its last character must not pass.
+	// A value differing in one character must not pass. The first character is
+	// changed, not the last: the last carries the trailing bits, so half its
+	// substitutions are not canonical and the parser refuses them outright.
 	raw := []byte(issued.Reveal())
-	if raw[len(raw)-1] == 'A' {
-		raw[len(raw)-1] = 'B'
+	if raw[0] == 'A' {
+		raw[0] = 'B'
 	} else {
-		raw[len(raw)-1] = 'A'
+		raw[0] = 'A'
 	}
 	near, err := session.ParseCSRFToken(string(raw))
 	if err != nil {
