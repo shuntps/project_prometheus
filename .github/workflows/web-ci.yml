@@ -31,17 +31,16 @@ jobs:
         with:
           persist-credentials: false
 
-      # This repository permits a short list of actions, so the toolchain comes
-      # from the Node the runner ships and the version pinned in the manifest.
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # The package manager version comes from the workspace manifest.
       - name: Set up pnpm
         timeout-minutes: 5
         run: |
-          node --version
-          major="$(node -p 'process.versions.node.split(".")[0]')"
-          if [ "$major" -lt 22 ]; then
-            echo "the runner ships node $major; this workspace requires 22 or later" >&2
-            exit 1
-          fi
           corepack enable pnpm
           pnpm --version
 
@@ -85,17 +84,16 @@ jobs:
         with:
           persist-credentials: false
 
-      # This repository permits a short list of actions, so the toolchain comes
-      # from the Node the runner ships and the version pinned in the manifest.
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # The package manager version comes from the workspace manifest.
       - name: Set up pnpm
         timeout-minutes: 5
         run: |
-          node --version
-          major="$(node -p 'process.versions.node.split(".")[0]')"
-          if [ "$major" -lt 22 ]; then
-            echo "the runner ships node $major; this workspace requires 22 or later" >&2
-            exit 1
-          fi
           corepack enable pnpm
           pnpm --version
 
