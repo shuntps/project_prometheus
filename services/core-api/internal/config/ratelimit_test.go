@@ -95,10 +95,10 @@ func TestRateLimitPolicyIsAcceptedWhenComplete(t *testing.T) {
 	if cfg.RateLimit.Algorithm != ratelimit.SlidingWindow {
 		t.Errorf("algorithm = %q, want sliding_window", cfg.RateLimit.Algorithm)
 	}
-	if len(cfg.RateLimit.TrustedProxies) != 2 {
-		t.Fatalf("trusted proxies = %v, want two entries", cfg.RateLimit.TrustedProxies)
+	if cfg.RateLimit.TrustedProxyCount() != 2 {
+		t.Fatalf("trusted proxies = %v, want two entries", cfg.RateLimit.TrustedProxyStrings())
 	}
-	if got := cfg.RateLimit.TrustedProxies[1].String(); got != "192.0.2.7/32" {
+	if got := cfg.RateLimit.TrustedProxyStrings()[1]; got != "192.0.2.7/32" {
 		t.Errorf("bare address became %q, want a single-host prefix", got)
 	}
 }
@@ -111,8 +111,8 @@ func TestDevelopmentGetsAPolicyWithoutExplicitConfiguration(t *testing.T) {
 	if cfg.RateLimit.Max <= 0 || cfg.RateLimit.Window <= 0 {
 		t.Errorf("development policy is not usable: %+v", cfg.RateLimit)
 	}
-	if len(cfg.RateLimit.TrustedProxies) != 0 {
-		t.Errorf("development trusts proxies by default: %v", cfg.RateLimit.TrustedProxies)
+	if cfg.RateLimit.TrustedProxyCount() != 0 {
+		t.Errorf("development trusts proxies by default: %v", cfg.RateLimit.TrustedProxyStrings())
 	}
 }
 

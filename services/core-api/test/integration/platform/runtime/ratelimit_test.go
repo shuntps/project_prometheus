@@ -114,8 +114,7 @@ func TestUntrustedPeerBehindProxyModeCannotForgeIdentity(t *testing.T) {
 		RateLimit: ratelimit.Policy{
 			Max: max, Window: time.Hour, Algorithm: ratelimit.FixedWindow,
 			NetworkMode: ratelimit.BehindProxy, ProxyHeader: "X-Forwarded-For",
-			TrustedProxies: []netip.Prefix{allowlist},
-		},
+		}.WithTrustedProxies(allowlist),
 		ReadTimeout: time.Second, WriteTimeout: time.Second, IdleTimeout: time.Second,
 		ShutdownTimeout: 5 * time.Second,
 		DatabaseURL:     dsnFor(t, dsn, host),
@@ -185,8 +184,7 @@ func TestUnsupportedProxyHeaderIsRefusedAtStartup(t *testing.T) {
 		RateLimit: ratelimit.Policy{
 			Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow,
 			NetworkMode: ratelimit.BehindProxy, ProxyHeader: "X-Client-Ip",
-			TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
-		},
+		}.WithTrustedProxies(netip.MustParsePrefix("10.0.0.0/8")),
 		ReadTimeout: time.Second, WriteTimeout: time.Second, IdleTimeout: time.Second,
 		ShutdownTimeout: time.Second,
 	}

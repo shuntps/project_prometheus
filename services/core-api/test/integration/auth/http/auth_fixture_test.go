@@ -80,7 +80,6 @@ type surface struct {
 	pool   *pgxpool.Pool
 	logs   *bytes.Buffer
 	clock  *testClock
-	limits ratelimit.AuthPolicy
 	faults *faultyStore
 }
 
@@ -165,16 +164,12 @@ func newSurface(t *testing.T, tune ...func(*authConfig)) *surface {
 		apply(&cfg)
 	}
 	if cfg.limiter == nil {
-		limiter, err := ratelimit.NewAuthLimiter(limits, nil)
+		limiter, err := ratelimit.NewAuthLimiter(limits)
 		if err != nil {
 			t.Fatalf("building the limiter failed: %v", err)
 		}
 		cfg.limiter = limiter
 	}
-	if policy, ok := cfg.limiter.(interface{ Policy() ratelimit.AuthPolicy }); ok {
-		limits = policy.Policy()
-	}
-
 	repository, err := authstore.NewRepository(store)
 	if err != nil {
 		t.Fatalf("building the repository failed: %v", err)
@@ -202,7 +197,7 @@ func newSurface(t *testing.T, tune ...func(*authConfig)) *surface {
 	}
 
 	app := httpfixture.MustApp(t, &opts)
-	return &surface{app: app, store: store, pool: pool, logs: logs, clock: clock, limits: limits, faults: faults}
+	return &surface{app: app, store: store, pool: pool, logs: logs, clock: clock, faults: faults}
 }
 
 var accountCounter = struct {
@@ -251,6 +246,7 @@ type request struct {
 	method        string
 	target        string
 	body          any
+	raw           []byte
 	origin        string
 	fetchSite     string
 	noJSON        bool
@@ -264,7 +260,10 @@ type request struct {
 func (s *surface) send(t *testing.T, r request) *http.Response {
 	t.Helper()
 	var body io.Reader
-	if r.body != nil {
+	switch {
+	case r.raw != nil:
+		body = bytes.NewReader(r.raw)
+	case r.body != nil:
 		encoded, err := json.Marshal(r.body)
 		if err != nil {
 			t.Fatalf("encoding the body failed: %v", err)
@@ -272,7 +271,7 @@ func (s *surface) send(t *testing.T, r request) *http.Response {
 		body = bytes.NewReader(encoded)
 	}
 	req := httptest.NewRequest(r.method, r.target, body)
-	if r.body != nil && !r.noJSON {
+	if (r.body != nil || r.raw != nil) && !r.noJSON {
 		req.Header.Set(fiber.HeaderContentType, "application/json")
 	}
 	if r.noJSON {

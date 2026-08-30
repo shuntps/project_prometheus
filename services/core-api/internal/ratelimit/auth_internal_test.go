@@ -1,7 +1,10 @@
 package ratelimit
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -13,7 +16,7 @@ func TestRefusalsWhileSaturatedDoNotRescanTheTable(t *testing.T) {
 		ClientAttempts: MaxAuthAttempts, IdentityAttempts: MaxAuthAttempts,
 		Window: 15 * time.Minute, Capacity: MinAuthCapacity,
 	}
-	l, err := NewAuthLimiter(p, nil)
+	l, err := NewAuthLimiter(p)
 	if err != nil {
 		t.Fatalf("building the limiter failed: %v", err)
 	}
@@ -60,7 +63,7 @@ func TestTheEarliestDeadlineTracksWhatTheTableHolds(t *testing.T) {
 		ClientAttempts: MaxAuthAttempts, IdentityAttempts: MaxAuthAttempts,
 		Window: 15 * time.Minute, Capacity: MinAuthCapacity,
 	}
-	l, err := NewAuthLimiter(p, nil)
+	l, err := NewAuthLimiter(p)
 	if err != nil {
 		t.Fatalf("building the limiter failed: %v", err)
 	}
@@ -90,7 +93,7 @@ func TestASweepThatFreesNothingStillStopsTheNextOnes(t *testing.T) {
 		ClientAttempts: MaxAuthAttempts, IdentityAttempts: MaxAuthAttempts,
 		Window: 15 * time.Minute, Capacity: MinAuthCapacity,
 	}
-	l, err := NewAuthLimiter(p, nil)
+	l, err := NewAuthLimiter(p)
 	if err != nil {
 		t.Fatalf("building the limiter failed: %v", err)
 	}
@@ -122,5 +125,92 @@ func TestASweepThatFreesNothingStillStopsTheNextOnes(t *testing.T) {
 	}
 	if spent := l.identities.sweeps - before; spent > 1 {
 		t.Fatalf("%d passes for %d refusals after a pass that freed nothing, want at most 1", spent, refusals)
+	}
+}
+
+// TestBothDimensionsStayStrictlyBounded proves the memory guarantee holds under
+// flooding of either dimension, and of both at once.
+func TestBothDimensionsStayStrictlyBounded(t *testing.T) {
+	p := AuthPolicy{
+		ClientAttempts: MaxAuthAttempts, IdentityAttempts: MaxAuthAttempts,
+		Window: 15 * time.Minute, Capacity: MinAuthCapacity,
+	}
+	l, err := NewAuthLimiter(p)
+	if err != nil {
+		t.Fatalf("building the limiter failed: %v", err)
+	}
+	now := time.Unix(1_700_000_000, 0).UTC()
+
+	for i := 0; i < p.Capacity*4; i++ {
+		l.Allow(fmt.Sprintf("10.%d.%d.%d", i/65536%256, i/256%256, i%256), fmt.Sprintf("flood%d@example.com", i), now)
+		l.Allow("198.51.100.7", fmt.Sprintf("other%d@example.com", i), now)
+	}
+	if held := len(l.clients.buckets); held > p.Capacity {
+		t.Errorf("the client table holds %d counters, above %d", held, p.Capacity)
+	}
+	if held := len(l.identities.buckets); held > p.Capacity {
+		t.Errorf("the identity table holds %d counters, above %d", held, p.Capacity)
+	}
+}
+
+// TestNoCounterKeyCarriesTheValueItCounts inspects the tables themselves: both
+// dimensions must hold keyed material, never the client or the address.
+func TestNoCounterKeyCarriesTheValueItCounts(t *testing.T) {
+	p := AuthPolicy{
+		ClientAttempts: 10, IdentityAttempts: 10,
+		Window: 15 * time.Minute, Capacity: MinAuthCapacity,
+	}
+	l, err := NewAuthLimiter(p)
+	if err != nil {
+		t.Fatalf("building the limiter failed: %v", err)
+	}
+	const (
+		client  = "198.51.100.7"
+		address = "victim@example.com"
+	)
+	if !l.Allow(client, address, time.Unix(1_700_000_000, 0).UTC()) {
+		t.Fatal("the first attempt was refused")
+	}
+
+	probes := []string{client, address, "victim", "example.com", "198.51.100"}
+	for name, table := range map[string]*dimension{"client": &l.clients, "identity": &l.identities} {
+		for key := range table.buckets {
+			for _, probe := range probes {
+				if strings.Contains(key, probe) {
+					t.Errorf("the %s key carries %q", name, probe)
+				}
+			}
+			// base64 of a SHA-256 tag, unpadded: one length for every input.
+			if want := base64.RawURLEncoding.EncodedLen(sha256.Size); len(key) != want {
+				t.Errorf("the %s key is %d characters, want the fixed %d", name, len(key), want)
+			}
+		}
+	}
+}
+
+// TestACounterKeyBelongsToOneProcess keeps a key from being recomputed outside
+// the instance that made it, and stable inside it.
+func TestACounterKeyBelongsToOneProcess(t *testing.T) {
+	p := AuthPolicy{
+		ClientAttempts: 10, IdentityAttempts: 10,
+		Window: 15 * time.Minute, Capacity: MinAuthCapacity,
+	}
+	first, err := NewAuthLimiter(p)
+	if err != nil {
+		t.Fatalf("building the limiter failed: %v", err)
+	}
+	second, err := NewAuthLimiter(p)
+	if err != nil {
+		t.Fatalf("building the second limiter failed: %v", err)
+	}
+	const address = "victim@example.com"
+	if first.counterKey(address) == second.counterKey(address) {
+		t.Error("two instances derived the same key, so it does not depend on the drawn secret")
+	}
+	if first.counterKey(address) != first.counterKey(address) {
+		t.Error("one instance derived two keys for the same value")
+	}
+	if first.counterKey(address) != first.counterKey("  VICTIM@Example.com  ") {
+		t.Error("case and surrounding space produced a second counter")
 	}
 }

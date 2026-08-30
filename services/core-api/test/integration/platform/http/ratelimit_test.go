@@ -27,13 +27,12 @@ const testProxyHeader = "X-Forwarded-For"
 // forwarded chain becomes authoritative for the key.
 func proxyPolicy(max int) ratelimit.Policy {
 	return ratelimit.Policy{
-		Max:            max,
-		Window:         time.Hour,
-		Algorithm:      ratelimit.FixedWindow,
-		NetworkMode:    ratelimit.BehindProxy,
-		ProxyHeader:    testProxyHeader,
-		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/32"), netip.MustParsePrefix("10.0.0.0/8")},
-	}
+		Max:         max,
+		Window:      time.Hour,
+		Algorithm:   ratelimit.FixedWindow,
+		NetworkMode: ratelimit.BehindProxy,
+		ProxyHeader: testProxyHeader,
+	}.WithTrustedProxies(netip.MustParsePrefix("0.0.0.0/32"), netip.MustParsePrefix("10.0.0.0/8"))
 }
 
 func statusWithHeader(t *testing.T, app *fiber.App, target, header, value string) int {
@@ -53,24 +52,23 @@ func statusWithHeader(t *testing.T, app *fiber.App, target, header, value string
 func TestConstructorRefusesAPolicyThatWouldFallBackToLibraryDefaults(t *testing.T) {
 	proxies := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
 	cases := map[string]ratelimit.Policy{
-		"empty policy":              {},
-		"zero maximum":              {Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.Direct},
-		"negative maximum":          {Max: -1, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.Direct},
-		"zero window":               {Max: 5, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.Direct},
-		"unknown algorithm":         {Max: 5, Window: time.Hour, Algorithm: "token_bucket", NetworkMode: ratelimit.Direct},
-		"empty algorithm":           {Max: 5, Window: time.Hour, NetworkMode: ratelimit.Direct},
-		"unset network mode":        {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow},
-		"unknown network mode":      {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: "edge"},
-		"proxies without the mode":  {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.Direct, TrustedProxies: proxies},
-		"header without the mode":   {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.Direct, ProxyHeader: testProxyHeader},
-		"proxy mode without a list": {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy, ProxyHeader: testProxyHeader},
-		"proxy mode without header": {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy, TrustedProxies: proxies},
-		"zero-value prefix":         {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy, ProxyHeader: testProxyHeader, TrustedProxies: []netip.Prefix{{}}},
-		"invalid prefix among valid ones": {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy, ProxyHeader: testProxyHeader,
-			TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8"), {}}},
-		"unsupported header":   {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy, ProxyHeader: "X-Client-Ip", TrustedProxies: proxies},
-		"non canonical header": {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy, ProxyHeader: "x-forwarded-for", TrustedProxies: proxies},
-		"empty header string":  {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy, ProxyHeader: "   ", TrustedProxies: proxies},
+		"empty policy":                    {},
+		"zero maximum":                    {Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.Direct},
+		"negative maximum":                {Max: -1, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.Direct},
+		"zero window":                     {Max: 5, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.Direct},
+		"unknown algorithm":               {Max: 5, Window: time.Hour, Algorithm: "token_bucket", NetworkMode: ratelimit.Direct},
+		"empty algorithm":                 {Max: 5, Window: time.Hour, NetworkMode: ratelimit.Direct},
+		"unset network mode":              {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow},
+		"unknown network mode":            {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: "edge"},
+		"proxies without the mode":        ratelimit.Policy{Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.Direct}.WithTrustedProxies(proxies...),
+		"header without the mode":         {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.Direct, ProxyHeader: testProxyHeader},
+		"proxy mode without a list":       {Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy, ProxyHeader: testProxyHeader},
+		"proxy mode without header":       ratelimit.Policy{Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy}.WithTrustedProxies(proxies...),
+		"zero-value prefix":               ratelimit.Policy{Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy, ProxyHeader: testProxyHeader}.WithTrustedProxies(netip.Prefix{}),
+		"invalid prefix among valid ones": ratelimit.Policy{Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy, ProxyHeader: testProxyHeader}.WithTrustedProxies(netip.MustParsePrefix("10.0.0.0/8"), netip.Prefix{}),
+		"unsupported header":              ratelimit.Policy{Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy, ProxyHeader: "X-Client-Ip"}.WithTrustedProxies(proxies...),
+		"non canonical header":            ratelimit.Policy{Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy, ProxyHeader: "x-forwarded-for"}.WithTrustedProxies(proxies...),
+		"empty header string":             ratelimit.Policy{Max: 5, Window: time.Hour, Algorithm: ratelimit.FixedWindow, NetworkMode: ratelimit.BehindProxy, ProxyHeader: "   "}.WithTrustedProxies(proxies...),
 	}
 	for name, policy := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -51,7 +51,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	if err != nil {
 		return nil, err
 	}
-	limiter, err := ratelimit.NewAuthLimiter(cfg.Auth.RateLimit, nil)
+	limiter, err := ratelimit.NewAuthLimiter(cfg.Auth.RateLimit)
 	if err != nil {
 		return nil, err
 	}

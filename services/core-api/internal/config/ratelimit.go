@@ -67,7 +67,7 @@ func loadRateLimit(lookup Lookup, env Environment) (ratelimit.Policy, []string) 
 	if raw, ok := trimmed(lookup, "RATE_LIMIT_TRUSTED_PROXIES"); ok {
 		proxies, errs := parseProxies(raw)
 		problems = append(problems, errs...)
-		policy.TrustedProxies = proxies
+		policy = policy.WithTrustedProxies(proxies...)
 	}
 
 	problems = append(problems, loadNetworkMode(lookup, explicit, &policy)...)
@@ -101,7 +101,7 @@ func loadNetworkMode(lookup Lookup, explicit bool, policy *ratelimit.Policy) []s
 	header, hasHeader := trimmed(lookup, "RATE_LIMIT_PROXY_HEADER")
 
 	if policy.NetworkMode == ratelimit.Direct {
-		if len(policy.TrustedProxies) > 0 {
+		if policy.TrustedProxyCount() > 0 {
 			problems = append(problems, "RATE_LIMIT_TRUSTED_PROXIES must be empty when NETWORK_MODE is direct")
 		}
 		if hasHeader {
@@ -110,7 +110,7 @@ func loadNetworkMode(lookup Lookup, explicit bool, policy *ratelimit.Policy) []s
 		return problems
 	}
 
-	if len(policy.TrustedProxies) == 0 {
+	if policy.TrustedProxyCount() == 0 {
 		problems = append(problems, "RATE_LIMIT_TRUSTED_PROXIES is required when NETWORK_MODE is behind_proxy")
 	}
 	switch {
@@ -119,7 +119,7 @@ func loadNetworkMode(lookup Lookup, explicit bool, policy *ratelimit.Policy) []s
 	default:
 		canonical, valid := ratelimit.CanonicalProxyHeader(header)
 		if !valid {
-			problems = append(problems, fmt.Sprintf("RATE_LIMIT_PROXY_HEADER %q is not one of %s", header, strings.Join(ratelimit.SupportedProxyHeaders, ", ")))
+			problems = append(problems, fmt.Sprintf("RATE_LIMIT_PROXY_HEADER %q is not one of %s", header, strings.Join(ratelimit.SupportedProxyHeaders(), ", ")))
 		} else {
 			policy.ProxyHeader = canonical
 		}

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -25,6 +26,10 @@ type AuthPolicy struct {
 	// own table, so an instance holds at most twice this many counters.
 	Capacity int
 }
+
+// errEntropy is fixed: a caller learns that no limiter was built and nothing
+// about the source that failed.
+var errEntropy = errors.New("authentication rate limit policy: no identity key could be drawn")
 
 const (
 	MinAuthAttempts = 1
@@ -61,147 +66,65 @@ func (p AuthPolicy) Validate() error {
 // multiply the effective allowance by n. Each dimension owns its table.
 type AuthLimiter struct {
 	policy AuthPolicy
-	// identityKey makes the identifier dimension irreversible. It is drawn once
-	// per process and never leaves it, so a counter key discloses no address.
-	identityKey []byte
+	// secret keys both dimensions. It is drawn once per process and never leaves
+	// it, so a counter key discloses neither the address nor the client.
+	secret []byte
 
 	mu         sync.Mutex
 	clients    dimension
 	identities dimension
 }
 
-// dimension is one bounded table of counters. It keeps the earliest deadline it
-// holds, so a refusal costs a comparison rather than a pass over every counter.
-type dimension struct {
-	buckets    map[string]*authBucket
-	nextExpiry time.Time
-	// sweeps counts the cleanup passes performed. It exists for the proof that
-	// refusals are amortised and is deliberately not exported.
-	sweeps int
+// NewAuthLimiter refuses an invalid policy rather than running unbounded. It is
+// the only way in, and it always draws from the process entropy source.
+func NewAuthLimiter(policy AuthPolicy) (*AuthLimiter, error) {
+	return newAuthLimiter(policy, rand.Reader)
 }
 
-type authBucket struct {
-	count   int
-	resetAt time.Time
-}
-
-// NewAuthLimiter refuses an invalid policy rather than running unbounded.
-func NewAuthLimiter(policy AuthPolicy, random io.Reader) (*AuthLimiter, error) {
+// newAuthLimiter takes the entropy source so that the failure path stays
+// provable. It is unexported: no caller outside this package may choose it.
+func newAuthLimiter(policy AuthPolicy, random io.Reader) (*AuthLimiter, error) {
+	// The policy is settled before any entropy is drawn, so an unusable policy
+	// never consumes from the source.
 	if err := policy.Validate(); err != nil {
 		return nil, err
 	}
-	if random == nil {
-		random = rand.Reader
-	}
-	key := make([]byte, sha256.Size)
-	if _, err := io.ReadFull(random, key); err != nil {
-		return nil, fmt.Errorf("authentication rate limit policy: no identity key could be drawn")
+	secret := make([]byte, sha256.Size)
+	if _, err := io.ReadFull(random, secret); err != nil {
+		return nil, errEntropy
 	}
 	return &AuthLimiter{
-		policy:      policy,
-		identityKey: key,
-		clients:     dimension{buckets: make(map[string]*authBucket)},
-		identities:  dimension{buckets: make(map[string]*authBucket)},
+		policy:     policy,
+		secret:     secret,
+		clients:    dimension{buckets: make(map[string]*authBucket)},
+		identities: dimension{buckets: make(map[string]*authBucket)},
 	}, nil
 }
 
-// Policy returns the enforced policy.
-func (l *AuthLimiter) Policy() AuthPolicy { return l.policy }
-
-// IdentityKey derives the counter key for a presented identifier. The result is
-// keyed, so it cannot be recomputed from a candidate address outside this process.
-func (l *AuthLimiter) IdentityKey(identifier string) string {
-	mac := hmac.New(sha256.New, l.identityKey)
-	mac.Write([]byte(strings.ToLower(strings.TrimSpace(identifier))))
+// counterKey derives a dimension's key. The result is keyed and of fixed length,
+// so it cannot be recomputed from a candidate value outside this process.
+func (l *AuthLimiter) counterKey(value string) string {
+	mac := hmac.New(sha256.New, l.secret)
+	mac.Write([]byte(strings.ToLower(strings.TrimSpace(value))))
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 // Allow charges the client and the identifier together, and charges nothing when
 // either is exhausted, so a refusal cannot delay the other's recovery.
 func (l *AuthLimiter) Allow(client, identifier string, now time.Time) bool {
-	identityKey := l.IdentityKey(identifier)
+	clientKey := l.counterKey(client)
+	identityKey := l.counterKey(identifier)
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if l.clients.admits(client, l.policy.ClientAttempts, l.policy.Capacity, now) != admitted {
+	if l.clients.admits(clientKey, l.policy.ClientAttempts, l.policy.Capacity, now) != admitted {
 		return false
 	}
 	if l.identities.admits(identityKey, l.policy.IdentityAttempts, l.policy.Capacity, now) != admitted {
 		return false
 	}
-	l.clients.charge(client, now, l.policy.Window)
+	l.clients.charge(clientKey, now, l.policy.Window)
 	l.identities.charge(identityKey, now, l.policy.Window)
 	return true
-}
-
-type verdict int
-
-const (
-	admitted verdict = iota
-	exhausted
-	noRoom
-)
-
-// admits decides one dimension without charging it. An unseen key needs a free
-// slot, and a full table is only scanned once its earliest deadline has passed.
-func (d *dimension) admits(key string, limit, capacity int, now time.Time) verdict {
-	if bucket, held := d.buckets[key]; held {
-		if !now.Before(bucket.resetAt) || bucket.count < limit {
-			return admitted
-		}
-		return exhausted
-	}
-	if len(d.buckets) < capacity {
-		return admitted
-	}
-	// No counter can have expired before the earliest deadline held, so refusing
-	// costs one comparison however many refusals arrive inside that interval.
-	if !d.nextExpiry.IsZero() && now.Before(d.nextExpiry) {
-		return noRoom
-	}
-	d.sweep(now)
-	if len(d.buckets) < capacity {
-		return admitted
-	}
-	// Every counter is still inside its window. Dropping one would discard a bound
-	// somebody is currently under, which is exactly what flooding would buy.
-	return noRoom
-}
-
-// sweep drops expired counters and recomputes the earliest deadline, so later
-// refusals short-circuit again. It never runs once per refusal.
-func (d *dimension) sweep(now time.Time) {
-	d.sweeps++
-	var earliest time.Time
-	for key, bucket := range d.buckets {
-		if !now.Before(bucket.resetAt) {
-			delete(d.buckets, key)
-			continue
-		}
-		if earliest.IsZero() || bucket.resetAt.Before(earliest) {
-			earliest = bucket.resetAt
-		}
-	}
-	d.nextExpiry = earliest
-}
-
-func (d *dimension) charge(key string, now time.Time, window time.Duration) {
-	if bucket, held := d.buckets[key]; held && now.Before(bucket.resetAt) {
-		bucket.count++
-		return
-	}
-	reset := now.Add(window)
-	d.buckets[key] = &authBucket{count: 1, resetAt: reset}
-	if d.nextExpiry.IsZero() || reset.Before(d.nextExpiry) {
-		d.nextExpiry = reset
-	}
-}
-
-// Size reports how many counters the instance currently holds across both
-// dimensions.
-func (l *AuthLimiter) Size() int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return len(l.clients.buckets) + len(l.identities.buckets)
 }

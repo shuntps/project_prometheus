@@ -55,7 +55,7 @@ func behindProxyEnv(header string) map[string]string {
 // TestLoaderCanonicalisesEverySupportedProxyHeader exercises the configuration
 // loader, which must return a semantically valid policy on its own.
 func TestLoaderCanonicalisesEverySupportedProxyHeader(t *testing.T) {
-	for _, canonical := range ratelimit.SupportedProxyHeaders {
+	for _, canonical := range ratelimit.SupportedProxyHeaders() {
 		for _, spelling := range []string{canonical, lower(canonical), "  " + canonical + "  "} {
 			cfg, err := loadWith(behindProxyEnv(spelling))
 			if err != nil {
@@ -84,8 +84,7 @@ func TestLoaderRefusesEveryUnsupportedProxyHeader(t *testing.T) {
 		policy := ratelimit.Policy{
 			Max: 10, Window: time.Minute, Algorithm: ratelimit.FixedWindow,
 			NetworkMode: ratelimit.BehindProxy, ProxyHeader: unsupported,
-			TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
-		}
+		}.WithTrustedProxies(netip.MustParsePrefix("10.0.0.0/8"))
 		if _, err := httpapi.New(completeExcept(policy)); err == nil {
 			t.Errorf("constructor accepted unsupported header %q that the loader refused", unsupported)
 		}
@@ -125,8 +124,7 @@ func TestProcessRefusesToStartWithAnInvalidPolicy(t *testing.T) {
 	invalid := ratelimit.Policy{
 		Max: 10, Window: time.Minute, Algorithm: ratelimit.FixedWindow,
 		NetworkMode: ratelimit.BehindProxy, ProxyHeader: "X-Forwarded-For",
-		TrustedProxies: []netip.Prefix{{}},
-	}
+	}.WithTrustedProxies(netip.Prefix{})
 	// Everything but the policy is valid, so the refusal can only come from it.
 	cfg := config.Config{
 		Environment: config.EnvProduction, LogLevel: "error", HTTPAddress: "127.0.0.1:0",
