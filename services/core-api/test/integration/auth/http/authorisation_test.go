@@ -36,10 +36,10 @@ func TestAuthorisationIsGrantedOnlyByAnExplicitRule(t *testing.T) {
 	if res := s.send(t, request{method: http.MethodGet, target: broadcastRoute, cookie: viewer.token, origin: publicOrigin}); res.StatusCode != http.StatusForbidden {
 		t.Errorf("a viewer was granted the broadcast permission: %d", res.StatusCode)
 	}
-	// An account holding no role at all is granted nothing, not even the read every
-	// named role carries.
-	if res := s.send(t, request{method: http.MethodGet, target: sessionRoute, cookie: bare.token, origin: publicOrigin}); res.StatusCode != http.StatusForbidden {
-		t.Errorf("an account with no role read its own session: %d", res.StatusCode)
+	// An account holding no role is granted no capability. Reading its own session
+	// is not one: holding the session is what authorises that, so it still answers.
+	if res := s.send(t, request{method: http.MethodGet, target: sessionRoute, cookie: bare.token, origin: publicOrigin}); res.StatusCode != http.StatusOK {
+		t.Errorf("an account with no role could not read its own session: %d", res.StatusCode)
 	}
 	if res := s.send(t, request{method: http.MethodGet, target: broadcastRoute, cookie: bare.token, origin: publicOrigin}); res.StatusCode != http.StatusForbidden {
 		t.Errorf("an account with no role was granted the broadcast permission: %d", res.StatusCode)

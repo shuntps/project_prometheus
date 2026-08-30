@@ -73,7 +73,7 @@ func (s *Store) RecordActivity(ctx context.Context, id session.ID, now time.Time
 		if err := iam.ValidateSurface(principal.Kind, principal.Surface); err != nil {
 			return ErrNotFound
 		}
-		if err := iam.Authorize(principal, iam.PermissionOwnSessionRead); err != nil {
+		if err := iam.Authorize(principal, iam.PermissionOwnSessionRenew); err != nil {
 			return fmt.Errorf("%w: the account may not renew this session", iam.ErrDenied)
 		}
 		if !current.ActivityIsWorthPersisting(at, lifetimes) {

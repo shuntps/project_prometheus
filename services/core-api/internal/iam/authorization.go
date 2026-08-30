@@ -22,7 +22,7 @@ const (
 type Permission string
 
 const (
-	PermissionOwnSessionRead     Permission = "own_session:read"
+	PermissionOwnSessionRenew    Permission = "own_session:renew"
 	PermissionStreamWatch        Permission = "stream:watch"
 	PermissionStreamBroadcast    Permission = "stream:broadcast"
 	PermissionSupportTicketRead  Permission = "support_ticket:read"
@@ -44,27 +44,27 @@ type roleDefinition struct {
 var roleDefinitions = map[Role]roleDefinition{
 	RoleViewer: {
 		surface: SurfacePublic, kinds: []Kind{KindViewer, KindCreator},
-		permissions: []Permission{PermissionOwnSessionRead, PermissionStreamWatch},
+		permissions: []Permission{PermissionOwnSessionRenew, PermissionStreamWatch},
 	},
 	RoleCreator: {
 		surface: SurfacePublic, kinds: []Kind{KindCreator},
-		permissions: []Permission{PermissionOwnSessionRead, PermissionStreamWatch, PermissionStreamBroadcast},
+		permissions: []Permission{PermissionOwnSessionRenew, PermissionStreamWatch, PermissionStreamBroadcast},
 	},
 	RoleOperatorSupport: {
 		surface: SurfaceOperator, kinds: []Kind{KindOperator},
-		permissions: []Permission{PermissionOwnSessionRead, PermissionSupportTicketRead},
+		permissions: []Permission{PermissionOwnSessionRenew, PermissionSupportTicketRead},
 	},
 	RoleOperatorModeration: {
 		surface: SurfaceOperator, kinds: []Kind{KindOperator},
-		permissions: []Permission{PermissionOwnSessionRead, PermissionModerationCaseRead},
+		permissions: []Permission{PermissionOwnSessionRenew, PermissionModerationCaseRead},
 	},
 	RoleOperatorCompliance: {
 		surface: SurfaceOperator, kinds: []Kind{KindOperator},
-		permissions: []Permission{PermissionOwnSessionRead, PermissionComplianceCaseRead},
+		permissions: []Permission{PermissionOwnSessionRenew, PermissionComplianceCaseRead},
 	},
 	RoleOperatorFinance: {
 		surface: SurfaceOperator, kinds: []Kind{KindOperator},
-		permissions: []Permission{PermissionOwnSessionRead, PermissionPayoutRead},
+		permissions: []Permission{PermissionOwnSessionRenew, PermissionPayoutRead},
 	},
 }
 

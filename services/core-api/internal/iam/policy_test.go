@@ -16,7 +16,7 @@ func TestTheWholeMatrixIsDecidedExplicitly(t *testing.T) {
 		iam.RoleOperatorModeration, iam.RoleOperatorCompliance, iam.RoleOperatorFinance,
 	}
 	permissions := []iam.Permission{
-		iam.PermissionOwnSessionRead, iam.PermissionStreamWatch, iam.PermissionStreamBroadcast,
+		iam.PermissionOwnSessionRenew, iam.PermissionStreamWatch, iam.PermissionStreamBroadcast,
 		iam.PermissionSupportTicketRead, iam.PermissionModerationCaseRead,
 		iam.PermissionComplianceCaseRead, iam.PermissionPayoutRead,
 	}
@@ -36,12 +36,12 @@ func TestTheWholeMatrixIsDecidedExplicitly(t *testing.T) {
 		iam.RoleOperatorCompliance: iam.SurfaceOperator, iam.RoleOperatorFinance: iam.SurfaceOperator,
 	}
 	roleCarries := map[iam.Role]map[iam.Permission]bool{
-		iam.RoleViewer:             {iam.PermissionOwnSessionRead: true, iam.PermissionStreamWatch: true},
-		iam.RoleCreator:            {iam.PermissionOwnSessionRead: true, iam.PermissionStreamWatch: true, iam.PermissionStreamBroadcast: true},
-		iam.RoleOperatorSupport:    {iam.PermissionOwnSessionRead: true, iam.PermissionSupportTicketRead: true},
-		iam.RoleOperatorModeration: {iam.PermissionOwnSessionRead: true, iam.PermissionModerationCaseRead: true},
-		iam.RoleOperatorCompliance: {iam.PermissionOwnSessionRead: true, iam.PermissionComplianceCaseRead: true},
-		iam.RoleOperatorFinance:    {iam.PermissionOwnSessionRead: true, iam.PermissionPayoutRead: true},
+		iam.RoleViewer:             {iam.PermissionOwnSessionRenew: true, iam.PermissionStreamWatch: true},
+		iam.RoleCreator:            {iam.PermissionOwnSessionRenew: true, iam.PermissionStreamWatch: true, iam.PermissionStreamBroadcast: true},
+		iam.RoleOperatorSupport:    {iam.PermissionOwnSessionRenew: true, iam.PermissionSupportTicketRead: true},
+		iam.RoleOperatorModeration: {iam.PermissionOwnSessionRenew: true, iam.PermissionModerationCaseRead: true},
+		iam.RoleOperatorCompliance: {iam.PermissionOwnSessionRenew: true, iam.PermissionComplianceCaseRead: true},
+		iam.RoleOperatorFinance:    {iam.PermissionOwnSessionRenew: true, iam.PermissionPayoutRead: true},
 	}
 	surfaceKind := map[iam.Surface]map[iam.Kind]bool{
 		iam.SurfacePublic:   {iam.KindViewer: true, iam.KindCreator: true},
