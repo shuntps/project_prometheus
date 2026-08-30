@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -63,7 +64,7 @@ func (s *Store) Resolve(ctx context.Context, token session.Token, now time.Time)
 	const query = `/* authstore.Resolve */
 		SELECT s.id, s.account_id, s.csrf_token, s.surface, s.created_at, s.last_active_at,
 			s.idle_expires_at, s.absolute_expires_at, s.revoked_at, s.rotated_to, a.status, a.kind,
-			ARRAY(SELECT r.role FROM account_role_grants r WHERE r.account_id = s.account_id ORDER BY r.role)
+			ARRAY(SELECT r.role FROM account_role_grants r WHERE r.account_id = s.account_id)
 		FROM account_sessions s
 		JOIN accounts a ON a.id = s.account_id
 		WHERE s.token_fingerprint = $1`
@@ -120,20 +121,26 @@ func (s *Store) Resolve(ctx context.Context, token session.Token, now time.Time)
 		return Resolved{}, ErrNotFound
 	}
 
-	var roles []iam.Role
-	for _, raw := range rawRoles {
-		// An unknown stored value is dropped rather than trusted as a role.
-		if role, known := iam.ParseRole(raw); known {
-			roles = append(roles, role)
-		}
-	}
 	return Resolved{
 		Session: sess,
 		Principal: iam.Principal{
 			Account: sess.Account, Kind: kind, Status: accountStatus,
-			Surface: sess.Surface, Roles: roles,
+			Surface: sess.Surface, Roles: canonicalRoles(rawRoles),
 		},
 	}, nil
+}
+
+// canonicalRoles keeps only the values the domain recognises and orders them in
+// Go, so the answer never depends on the collation the database happens to use.
+func canonicalRoles(stored []string) []iam.Role {
+	var roles []iam.Role
+	for _, raw := range stored {
+		if role, known := iam.ParseRole(raw); known {
+			roles = append(roles, role)
+		}
+	}
+	slices.Sort(roles)
+	return roles
 }
 
 // accountKind reads the kind inside the caller's transaction, so a surface rule

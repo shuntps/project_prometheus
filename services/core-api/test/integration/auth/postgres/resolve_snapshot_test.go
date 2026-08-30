@@ -250,12 +250,14 @@ func TestAResolutionReportsNoRoleForAnAccountHoldingNone(t *testing.T) {
 	}
 }
 
-func TestAResolutionReportsEveryGrantOnceInLexicalOrder(t *testing.T) {
+// TestAResolutionReportsEveryGrantOnceInTheApplicationOrder exercises the real
+// PostgreSQL adapter and requires every current grant exactly once in the
+// application's canonical order.
+func TestAResolutionReportsEveryGrantOnceInTheApplicationOrder(t *testing.T) {
 	store, _ := freshStore(t)
 	now := time.Now().UTC().Truncate(time.Second)
-	// Granted out of order, so a passing result cannot come from insertion order.
 	account := newAccountAt(t, store, now, iam.KindOperator, iam.StatusActive,
-		iam.RoleOperatorSupport, iam.RoleOperatorCompliance, iam.RoleOperatorModeration, iam.RoleOperatorFinance)
+		iam.RoleOperatorSupport, iam.RoleOperatorModeration, iam.RoleOperatorFinance, iam.RoleOperatorCompliance)
 	_, token := openSession(t, store, account.ID, iam.SurfaceOperator, now)
 
 	resolved, err := store.Resolve(context.Background(), token, now)
@@ -269,6 +271,21 @@ func TestAResolutionReportsEveryGrantOnceInLexicalOrder(t *testing.T) {
 	if !slices.Equal(resolved.Principal.Roles, want) {
 		t.Fatalf("resolved the roles %v, want %v", resolved.Principal.Roles, want)
 	}
+	for _, role := range want {
+		if held := countOf(resolved.Principal.Roles, role); held != 1 {
+			t.Fatalf("the role %q came back %d times, want once", role, held)
+		}
+	}
+}
+
+func countOf(roles []iam.Role, want iam.Role) int {
+	held := 0
+	for _, role := range roles {
+		if role == want {
+			held++
+		}
+	}
+	return held
 }
 
 // TestAResolutionReadsOneRowWhateverTheGrantCount reads the row count from the
@@ -277,7 +294,7 @@ func TestAResolutionReadsOneRowWhateverTheGrantCount(t *testing.T) {
 	store, _ := freshStore(t)
 	now := time.Now().UTC().Truncate(time.Second)
 	account := newAccountAt(t, store, now, iam.KindOperator, iam.StatusActive,
-		iam.RoleOperatorSupport, iam.RoleOperatorCompliance, iam.RoleOperatorModeration, iam.RoleOperatorFinance)
+		iam.RoleOperatorSupport, iam.RoleOperatorModeration, iam.RoleOperatorFinance, iam.RoleOperatorCompliance)
 	_, token := openSession(t, store, account.ID, iam.SurfaceOperator, now)
 
 	tracer := &rowCountTracer{}

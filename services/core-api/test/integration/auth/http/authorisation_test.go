@@ -2,7 +2,9 @@ package integration_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -161,4 +163,50 @@ func TestASessionReadWritesNothing(t *testing.T) {
 	if res := s.send(t, request{method: http.MethodGet, target: sessionRoute, cookie: in.token, origin: publicOrigin}); res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("the session outlived its unrenewed idle window: %d", res.StatusCode)
 	}
+}
+
+// TestServedRolesCarryTheApplicationOrder requires both public answers to use
+// the same canonical role sequence. Sign-in and session reads take different
+// store paths.
+func TestServedRolesCarryTheApplicationOrder(t *testing.T) {
+	s := newSurface(t)
+	address, _ := s.account(t, iam.KindCreator, iam.StatusActive, iam.RoleViewer, iam.RoleCreator)
+	want := []string{"creator", "viewer"}
+
+	in := s.signIn(t, address, probePassword)
+	if in.response.StatusCode != http.StatusCreated {
+		t.Fatalf("signing in returned %d: %s", in.response.StatusCode, in.body)
+	}
+	if got := rolesOf(t, in.view); !slices.Equal(got, want) {
+		t.Fatalf("the sign-in answer carried the roles %v, want %v", got, want)
+	}
+
+	res := s.send(t, request{method: http.MethodGet, target: sessionRoute, cookie: in.token, origin: publicOrigin})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("the session read returned %d", res.StatusCode)
+	}
+	var view map[string]any
+	if err := json.Unmarshal([]byte(bodyOf(t, res)), &view); err != nil {
+		t.Fatalf("decoding the session view failed: %v", err)
+	}
+	if got := rolesOf(t, view); !slices.Equal(got, want) {
+		t.Fatalf("the session read carried the roles %v, want %v", got, want)
+	}
+}
+
+func rolesOf(t *testing.T, view map[string]any) []string {
+	t.Helper()
+	raw, held := view["roles"].([]any)
+	if !held {
+		t.Fatalf("the view carries no roles array: %v", view["roles"])
+	}
+	roles := make([]string, 0, len(raw))
+	for _, value := range raw {
+		text, isText := value.(string)
+		if !isText {
+			t.Fatalf("a served role is not a string: %v", value)
+		}
+		roles = append(roles, text)
+	}
+	return roles
 }
