@@ -43,7 +43,8 @@ func lockedAuthority(ctx context.Context, tx pgx.Tx, account iam.AccountID) (iam
 }
 
 // grantsOf locks the rows it reads. An unlocked read would let a grant be deleted
-// between the decision and the write it authorises.
+// between the decision and the write it authorises. Its ORDER BY fixes the order
+// the locks are taken in; the order of the answer is the application's to set.
 func grantsOf(ctx context.Context, tx pgx.Tx, account iam.AccountID) ([]iam.Role, error) {
 	rows, err := tx.Query(ctx, `SELECT role FROM account_role_grants WHERE account_id = $1 ORDER BY role FOR UPDATE`, uuid.UUID(account))
 	if err != nil {
@@ -51,18 +52,16 @@ func grantsOf(ctx context.Context, tx pgx.Tx, account iam.AccountID) ([]iam.Role
 	}
 	defer rows.Close()
 
-	var roles []iam.Role
+	var stored []string
 	for rows.Next() {
 		var raw string
 		if err := rows.Scan(&raw); err != nil {
 			return nil, ErrStore
 		}
-		if role, known := iam.ParseRole(raw); known {
-			roles = append(roles, role)
-		}
+		stored = append(stored, raw)
 	}
 	if rows.Err() != nil {
 		return nil, ErrStore
 	}
-	return roles, nil
+	return canonicalRoles(stored), nil
 }
