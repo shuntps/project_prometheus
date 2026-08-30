@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,8 +17,8 @@ import (
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
 )
 
-// resolveMarker is the comment the resolution statement carries. The tracer
-// recognises it rather than comparing the whole SQL, which formatting can change.
+// resolveMarker is the comment the resolution statement opens with. The tracer
+// matches that prefix rather than the whole SQL, which formatting can change.
 const resolveMarker = "/* authstore.Resolve */"
 
 // resolveTracer pauses one resolution between the instant its statement produced
@@ -37,7 +38,7 @@ func newResolveTracer() *resolveTracer {
 }
 
 func (r *resolveTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	if !containsMarker(data.SQL) {
+	if !hasResolveMarkerPrefix(data.SQL) {
 		return ctx
 	}
 	return context.WithValue(ctx, tracedKey{}, true)
@@ -77,8 +78,9 @@ func (r *resolveTracer) reportedProblems() []string {
 
 type tracedKey struct{}
 
-func containsMarker(sql string) bool {
-	return len(sql) >= len(resolveMarker) && sql[:len(resolveMarker)] == resolveMarker
+// hasResolveMarkerPrefix reports whether a statement opens with the marker.
+func hasResolveMarkerPrefix(sql string) bool {
+	return strings.HasPrefix(sql, resolveMarker)
 }
 
 // tracedStore opens a pool of its own carrying the tracer. The mutating pool
@@ -112,8 +114,10 @@ func TestAResolutionNeverMixesTwoStatesOfOneAccount(t *testing.T) {
 	_, token := openSession(t, store, account.ID, iam.SurfacePublic, now)
 
 	tracer := newResolveTracer()
-	t.Cleanup(tracer.free)
 	traced := tracedStore(t, tracer)
+	// Registered after the pool close so the reverse order releases the paused
+	// statement first; otherwise an early exit would close the pool against it.
+	t.Cleanup(tracer.free)
 
 	type outcome struct {
 		resolved authstore.Resolved
@@ -190,7 +194,7 @@ type rowCountTracer struct {
 }
 
 func (r *rowCountTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	if !containsMarker(data.SQL) {
+	if !hasResolveMarkerPrefix(data.SQL) {
 		return ctx
 	}
 	return context.WithValue(ctx, tracedKey{}, true)
