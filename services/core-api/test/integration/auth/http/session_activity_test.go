@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
@@ -112,10 +111,8 @@ func TestTheActivitySignalIsGuardedLikeEveryOtherOperationWithEffect(t *testing.
 	if in.response.StatusCode != http.StatusCreated {
 		t.Fatalf("sign-in returned %d", in.response.StatusCode)
 	}
-	forged, err := session.NewCSRFToken(nil)
-	if err != nil {
-		t.Fatalf("drawing failed: %v", err)
-	}
+	forgedSession, _ := drawn(t)
+	forged := forgedSession.CSRF
 	base := request{
 		method: http.MethodPost, target: activityRoute, body: map[string]string{},
 		origin: publicOrigin, fetchSite: "same-origin", cookie: in.token, csrf: in.csrf,
@@ -164,10 +161,7 @@ func TestTheActivitySignalIsGuardedLikeEveryOtherOperationWithEffect(t *testing.
 
 func drawnToken(t *testing.T) string {
 	t.Helper()
-	token, err := session.NewToken(nil)
-	if err != nil {
-		t.Fatalf("drawing failed: %v", err)
-	}
+	_, token := drawn(t)
 	return token.Reveal()
 }
 

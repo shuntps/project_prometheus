@@ -1,7 +1,6 @@
 package session_test
 
 import (
-	"crypto/rand"
 	"testing"
 	"time"
 
@@ -24,9 +23,23 @@ func mustAccount(t *testing.T) iam.AccountID {
 
 func issue(t *testing.T, now time.Time) (session.Session, session.Token) {
 	t.Helper()
-	sess, token, err := session.Issue(mustAccount(t), iam.KindViewer, iam.SurfacePublic, lifetimes(), now, rand.Reader)
+	sess, token, err := session.Issue(mustAccount(t), iam.KindViewer, iam.SurfacePublic, lifetimes(), now)
 	if err != nil {
 		t.Fatalf("issuing a session failed: %v", err)
 	}
 	return sess, token
 }
+
+// issuedCSRF takes a CSRF token from a throwaway session, the only way this
+// package hands one out.
+func issuedCSRF(t *testing.T) session.CSRFToken {
+	t.Helper()
+	sess, _ := issue(t, time.Unix(1_700_000_000, 0).UTC())
+	return sess.CSRF
+}
+
+func viewerKind() iam.Kind { return iam.KindViewer }
+
+func operatorKind() iam.Kind { return iam.KindOperator }
+
+func zeroAccount() iam.AccountID { return iam.AccountID{} }

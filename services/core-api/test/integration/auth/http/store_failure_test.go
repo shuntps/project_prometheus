@@ -163,10 +163,7 @@ func TestAStoreFailureOnAProtectedRouteIsNotAFalseUnauthorized(t *testing.T) {
 		}
 	}
 	// A genuinely unknown token still gets the uniform refusal.
-	drawn, err := session.NewToken(nil)
-	if err != nil {
-		t.Fatalf("drawing failed: %v", err)
-	}
+	_, drawn := drawn(t)
 	if res := s.send(t, request{method: http.MethodGet, target: sessionRoute, cookie: drawn.Reveal(), origin: publicOrigin}); res.StatusCode != http.StatusUnauthorized {
 		t.Errorf("an unknown token returned %d, want 401", res.StatusCode)
 	}

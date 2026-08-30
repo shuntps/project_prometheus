@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
+	"time"
 )
 
 // TestTheSessionIdentifierKeepsItsContract pins what every store, event and port
@@ -21,10 +22,8 @@ func TestTheSessionIdentifierKeepsItsContract(t *testing.T) {
 
 	seen := make(map[string]struct{}, 64)
 	for range 64 {
-		id, err := session.NewID()
-		if err != nil {
-			t.Fatalf("drawing an identifier failed: %v", err)
-		}
+		sess, _ := issue(t, time.Now())
+		id := sess.ID
 		if id.IsZero() {
 			t.Fatal("a drawn identifier reported itself unset")
 		}

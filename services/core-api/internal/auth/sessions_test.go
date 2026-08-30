@@ -25,10 +25,7 @@ func newSessions(t *testing.T, repo *repository) *auth.Sessions {
 
 func aToken(t *testing.T) session.Token {
 	t.Helper()
-	token, err := session.NewToken(entropy())
-	if err != nil {
-		t.Fatalf("drawing a token failed: %v", err)
-	}
+	_, token := drawn(t)
 	return token
 }
 
@@ -89,10 +86,8 @@ func TestAuthorisationSeparatesForbiddenFromUnauthenticated(t *testing.T) {
 // TestActivityKeepsDeniedApartFromAbsent keeps the transaction's own authorisation
 // verdict from being reported as a session that no longer exists.
 func TestActivityKeepsDeniedApartFromAbsent(t *testing.T) {
-	id, err := session.NewID()
-	if err != nil {
-		t.Fatalf("drawing a session identifier failed: %v", err)
-	}
+	sess, _ := drawn(t)
+	id := sess.ID
 	cases := map[string]struct {
 		repo    *repository
 		outcome auth.Outcome
@@ -123,10 +118,8 @@ func TestActivityKeepsDeniedApartFromAbsent(t *testing.T) {
 // TestActivityIsAnchoredToTheResolutionInstant keeps a clock from moving between
 // the resolution and the write, which could renew a session already expired.
 func TestActivityIsAnchoredToTheResolutionInstant(t *testing.T) {
-	id, err := session.NewID()
-	if err != nil {
-		t.Fatalf("drawing a session identifier failed: %v", err)
-	}
+	sess, _ := drawn(t)
+	id := sess.ID
 	repo := &repository{activityFound: true}
 	anchor := fixedNow.Add(-time.Minute)
 	if _, err := newSessions(t, repo).RenewActivity(context.Background(), id, anchor); err != nil {
@@ -140,10 +133,8 @@ func TestActivityIsAnchoredToTheResolutionInstant(t *testing.T) {
 // TestEndingASessionAlreadyGoneIsNotAFailure keeps sign-out idempotent while a
 // store that failed stays distinguishable from a session already revoked.
 func TestEndingASessionAlreadyGoneIsNotAFailure(t *testing.T) {
-	id, err := session.NewID()
-	if err != nil {
-		t.Fatalf("drawing a session identifier failed: %v", err)
-	}
+	sess, _ := drawn(t)
+	id := sess.ID
 	outcome, err := newSessions(t, &repository{revokeFound: false}).End(context.Background(), id)
 	if err != nil || outcome != auth.OutcomeUnauthenticated {
 		t.Fatalf("an already revoked session produced (%d, %v)", outcome, err)

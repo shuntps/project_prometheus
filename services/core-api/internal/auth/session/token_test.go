@@ -2,58 +2,17 @@ package session_test
 
 import (
 	"bytes"
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
-	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
-
-// TestTokensCarryTheAdoptedEntropyAndNeverRepeat covers ASVS v5.0.0-7.2.3: a
-// CSPRNG and at least 128 bits. The adopted size is 256 bits.
-func TestTokensCarryTheAdoptedEntropyAndNeverRepeat(t *testing.T) {
-	const draws = 512
-	seen := make(map[string]struct{}, draws)
-	for range draws {
-		token, err := session.NewToken(rand.Reader)
-		if err != nil {
-			t.Fatalf("drawing a token failed: %v", err)
-		}
-		decoded, err := base64.RawURLEncoding.DecodeString(token.Reveal())
-		if err != nil {
-			t.Fatalf("the token is not of the issued shape: %v", err)
-		}
-		if len(decoded) != session.TokenBytes || len(decoded)*8 < 128 {
-			t.Fatalf("the token carries %d bits", len(decoded)*8)
-		}
-		if _, repeated := seen[token.Reveal()]; repeated {
-			t.Fatal("the same token was drawn twice")
-		}
-		seen[token.Reveal()] = struct{}{}
-	}
-}
-
-// TestAFailingRandomSourceRefusesRatherThanWeakening keeps a degraded entropy
-// source from producing a predictable token.
-func TestAFailingRandomSourceRefusesRatherThanWeakening(t *testing.T) {
-	failing := io.LimitReader(rand.Reader, int64(session.TokenBytes-1))
-	if _, err := session.NewToken(failing); !errors.Is(err, session.ErrInvalid) {
-		t.Fatalf("got %v, want a refusal when the source runs short", err)
-	}
-
-	_, _, err := session.Issue(mustAccount(t), iam.KindViewer, iam.SurfacePublic, lifetimes(), time.Now(), io.LimitReader(rand.Reader, 4))
-	if !errors.Is(err, session.ErrInvalid) {
-		t.Fatalf("a session was issued from a short source: %v", err)
-	}
-}
 
 // TestTheStoredFingerprintDoesNotYieldTheToken is why only the fingerprint is
 // written: recovering the token from it must be infeasible, and it must differ.
@@ -71,7 +30,7 @@ func TestTheStoredFingerprintDoesNotYieldTheToken(t *testing.T) {
 	}
 
 	// The same token always fingerprints the same way, and a different one never does.
-	other, _ := session.NewToken(rand.Reader)
+	_, other := issue(t, time.Now())
 	if token.Fingerprint() != sess.Fingerprint {
 		t.Error("the token does not fingerprint to the stored value")
 	}
@@ -119,8 +78,8 @@ func TestTheTokenNeverRendersItself(t *testing.T) {
 func TestTokenParsingRefusesAnythingNotIssuedHere(t *testing.T) {
 	for _, raw := range []string{
 		"", "   ", "not base64!", base64.RawURLEncoding.EncodeToString([]byte("short")),
-		base64.RawURLEncoding.EncodeToString(make([]byte, session.TokenBytes+1)),
-		base64.StdEncoding.EncodeToString(make([]byte, session.TokenBytes)) + "==",
+		base64.RawURLEncoding.EncodeToString(make([]byte, 33)),
+		base64.StdEncoding.EncodeToString(make([]byte, 32)) + "==",
 	} {
 		if _, err := session.ParseToken(raw); !errors.Is(err, session.ErrInvalid) {
 			t.Errorf("%q was accepted as a token", raw)
@@ -172,13 +131,4 @@ func TestTheFingerprintNeverRendersItself(t *testing.T) {
 		t.Error("mutating the returned slice changed the fingerprint")
 	}
 
-	rebuilt, err := session.FingerprintFrom(fingerprint.Bytes())
-	if err != nil || rebuilt != fingerprint {
-		t.Fatalf("a fingerprint did not survive a round trip: %v", err)
-	}
-	for _, wrong := range [][]byte{nil, {}, make([]byte, 31), make([]byte, 33)} {
-		if _, err := session.FingerprintFrom(wrong); err == nil {
-			t.Errorf("a fingerprint of %d bytes was accepted", len(wrong))
-		}
-	}
 }

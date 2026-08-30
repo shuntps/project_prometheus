@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -133,7 +132,7 @@ func openSession(t *testing.T, store *authstore.Store, account iam.AccountID, su
 	if surface == iam.SurfaceOperator {
 		kind = iam.KindOperator
 	}
-	sess, token, err := session.Issue(account, kind, surface, lifetimes(), now, rand.Reader)
+	sess, token, err := session.Issue(account, kind, surface, lifetimes(), now)
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
@@ -157,7 +156,7 @@ func assertNoSuccessorStored(t *testing.T, pool *pgxpool.Pool, id session.ID) {
 
 func mustSession(t *testing.T, account iam.AccountID, now time.Time) session.Session {
 	t.Helper()
-	sess, _, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic, lifetimes(), now, rand.Reader)
+	sess, _, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic, lifetimes(), now)
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
@@ -230,4 +229,19 @@ func deadlines(t *testing.T, pool *pgxpool.Pool, id session.ID) (active, idle, a
 		t.Fatalf("reading the deadlines failed: %v", err)
 	}
 	return active, idle, absolute
+}
+
+// drawn issues a throwaway session so a test needing only an identifier or a
+// token takes it from the one authority that emits them.
+func drawn(t *testing.T) (session.Session, session.Token) {
+	t.Helper()
+	account, err := iam.NewAccountID()
+	if err != nil {
+		t.Fatalf("drawing an account identifier failed: %v", err)
+	}
+	sess, token, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic, lifetimes(), time.Now().UTC())
+	if err != nil {
+		t.Fatalf("issuing a session failed: %v", err)
+	}
+	return sess, token
 }

@@ -3,7 +3,6 @@ package integration_test
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"strings"
@@ -53,7 +52,7 @@ func TestTheRawTokenNeverReachesTheDatabase(t *testing.T) {
 
 	// Two tokens differing only in their last byte must not share a stored value.
 	// A prefix or truncation would give them the same one.
-	body := make([]byte, session.TokenBytes)
+	body := make([]byte, 32) // the adopted token size, restated here
 	for i := range body {
 		body[i] = byte(i)
 	}
@@ -73,10 +72,7 @@ func TestTheRawTokenNeverReachesTheDatabase(t *testing.T) {
 
 func TestAnUnknownTokenResolvesToNothing(t *testing.T) {
 	store, _ := freshStore(t)
-	stranger, err := session.NewToken(rand.Reader)
-	if err != nil {
-		t.Fatalf("drawing a token failed: %v", err)
-	}
+	_, stranger := drawn(t)
 	if _, err := store.Resolve(context.Background(), stranger, time.Now().UTC()); !errors.Is(err, authstore.ErrNotFound) {
 		t.Fatalf("got %v, want nothing usable", err)
 	}
@@ -224,7 +220,7 @@ func TestASurfaceIsAlwaysBoundToTheAccountKindAtEveryBoundary(t *testing.T) {
 	operator := newAccount(t, store, iam.KindOperator, iam.StatusActive, iam.RoleOperatorFinance)
 
 	// A viewer account may not open an operator session, whichever path is used.
-	if _, _, err := session.Issue(viewer.ID, iam.KindViewer, iam.SurfaceOperator, lifetimes(), now, rand.Reader); err == nil {
+	if _, _, err := session.Issue(viewer.ID, iam.KindViewer, iam.SurfaceOperator, lifetimes(), now); err == nil {
 		t.Error("a viewer account issued an operator session")
 	}
 	handmade := mustSession(t, viewer.ID, now)
@@ -267,10 +263,8 @@ func TestNoWritePathStoresAnInvalidSessionRecord(t *testing.T) {
 	operator := newAccount(t, store, iam.KindOperator, iam.StatusActive, iam.RoleOperatorFinance)
 
 	revoked := now.Add(-time.Minute)
-	successorID, err := session.NewID()
-	if err != nil {
-		t.Fatalf("drawing a session identifier failed: %v", err)
-	}
+	successorIDSession, _ := drawn(t)
+	successorID := successorIDSession.ID
 
 	cases := map[string]func(s *session.Session){
 		"zero session identifier":       func(s *session.Session) { s.ID = session.ID{} },

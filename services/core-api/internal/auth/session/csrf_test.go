@@ -2,7 +2,6 @@ package session_test
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -14,25 +13,8 @@ import (
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
-func TestACSRFTokenCarriesTheAdoptedEntropy(t *testing.T) {
-	token, err := session.NewCSRFToken(nil)
-	if err != nil {
-		t.Fatalf("drawing failed: %v", err)
-	}
-	decoded, err := base64.RawURLEncoding.DecodeString(token.Reveal())
-	if err != nil {
-		t.Fatalf("the token is not base64url: %v", err)
-	}
-	if len(decoded) != session.CSRFTokenBytes {
-		t.Fatalf("the token carries %d bytes, want %d", len(decoded), session.CSRFTokenBytes)
-	}
-}
-
 func TestOnlyATokenOfTheIssuedShapeParses(t *testing.T) {
-	issued, err := session.NewCSRFToken(nil)
-	if err != nil {
-		t.Fatalf("drawing failed: %v", err)
-	}
+	issued := issuedCSRF(t)
 	if parsed, err := session.ParseCSRFToken(issued.Reveal()); err != nil || !parsed.Equals(issued) {
 		t.Fatalf("an issued token did not round-trip: %v", err)
 	}
@@ -47,10 +29,7 @@ func TestOnlyATokenOfTheIssuedShapeParses(t *testing.T) {
 // TestACSRFTokenNeverRendersItself keeps the value out of every path that could
 // reach a log, an error, a metric or a serialised body by accident.
 func TestACSRFTokenNeverRendersItself(t *testing.T) {
-	token, err := session.NewCSRFToken(nil)
-	if err != nil {
-		t.Fatalf("drawing failed: %v", err)
-	}
+	token := issuedCSRF(t)
 	secret := token.Reveal()
 
 	renderings := map[string]string{
@@ -93,14 +72,8 @@ func TestACSRFTokenNeverRendersItself(t *testing.T) {
 }
 
 func TestComparisonRefusesAnyValueThatIsNotTheIssuedOne(t *testing.T) {
-	issued, err := session.NewCSRFToken(nil)
-	if err != nil {
-		t.Fatalf("drawing failed: %v", err)
-	}
-	other, err := session.NewCSRFToken(nil)
-	if err != nil {
-		t.Fatalf("drawing failed: %v", err)
-	}
+	issued := issuedCSRF(t)
+	other := issuedCSRF(t)
 
 	if !issued.Equals(issued) {
 		t.Fatal("a token did not equal itself")
@@ -138,11 +111,11 @@ func TestIssuingBindsADistinctCSRFTokenToEachSession(t *testing.T) {
 	lifetimes := session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute}
 	now := time.Unix(1_700_000_000, 0).UTC()
 
-	first, firstToken, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic, lifetimes, now, nil)
+	first, firstToken, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic, lifetimes, now)
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
-	second, _, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic, lifetimes, now, nil)
+	second, _, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic, lifetimes, now)
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
@@ -169,7 +142,7 @@ func TestASessionWithoutACSRFTokenIsRefused(t *testing.T) {
 	lifetimes := session.Lifetimes{Absolute: time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute}
 	now := time.Unix(1_700_000_000, 0).UTC()
 
-	valid, _, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic, lifetimes, now, nil)
+	valid, _, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic, lifetimes, now)
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}

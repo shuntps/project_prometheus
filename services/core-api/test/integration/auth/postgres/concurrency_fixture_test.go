@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"context"
-	"crypto/rand"
 	"testing"
 	"time"
 
@@ -106,7 +105,7 @@ func successorOf(t *testing.T, sess session.Session, now time.Time) session.Sess
 	if sess.Surface == iam.SurfaceOperator {
 		kind = iam.KindOperator
 	}
-	next, _, err := session.Issue(sess.Account, kind, sess.Surface, lifetimes(), now, rand.Reader)
+	next, _, err := session.Issue(sess.Account, kind, sess.Surface, lifetimes(), now)
 	if err != nil {
 		t.Fatalf("issuing the successor failed: %v", err)
 	}
