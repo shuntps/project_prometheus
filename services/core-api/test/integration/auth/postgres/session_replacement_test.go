@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"context"
-	"crypto/rand"
 	"testing"
 	"time"
 
@@ -56,7 +55,7 @@ func TestAFailedReplacementRollsBackInsidePostgreSQL(t *testing.T) {
 			}
 			injectFault(t, pool, statement)
 
-			successor, _, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now, rand.Reader)
+			successor, _, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now)
 			if err != nil {
 				t.Fatalf("issuing the successor failed: %v", err)
 			}

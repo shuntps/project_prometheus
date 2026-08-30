@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"testing"
 	"time"
@@ -56,7 +55,7 @@ func TestActivityIsCappedByTheAbsoluteDeadline(t *testing.T) {
 	short := session.Lifetimes{Absolute: 40 * time.Minute, Idle: 30 * time.Minute, ActivityInterval: time.Minute}
 	account := newAccount(t, store, iam.KindViewer, iam.StatusActive, iam.RoleViewer)
 
-	sess, _, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, short, now, rand.Reader)
+	sess, _, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, short, now)
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
@@ -181,7 +180,7 @@ func TestActivityCannotReviveOrOutliveTheAccountsAuthority(t *testing.T) {
 			}
 		},
 		"replaced": func(t *testing.T, store *authstore.Store, _ *pgxpool.Pool, account iam.Account, sess session.Session) {
-			successor, _, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now, rand.Reader)
+			successor, _, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now)
 			if err != nil {
 				t.Fatalf("issuing failed: %v", err)
 			}
@@ -251,10 +250,8 @@ func TestActivityCannotReviveOrOutliveTheAccountsAuthority(t *testing.T) {
 	// An unknown session is the same answer.
 	t.Run("unknown", func(t *testing.T) {
 		store, _ := freshStore(t)
-		drawn, err := session.NewID()
-		if err != nil {
-			t.Fatalf("drawing failed: %v", err)
-		}
+		drawnSession, _ := drawn(t)
+		drawn := drawnSession.ID
 		if _, err := store.RecordActivity(context.Background(), drawn, now, lifetimes()); !errors.Is(err, authstore.ErrNotFound) {
 			t.Fatalf("an unknown session returned %v", err)
 		}

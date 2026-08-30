@@ -3,6 +3,7 @@
 package session
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -34,9 +35,16 @@ type Session struct {
 	RotatedTo         *ID
 }
 
-// Issue builds a session and its token together. The token is returned once and
-// is never derivable from what is stored.
-func Issue(account iam.AccountID, kind iam.Kind, surface iam.Surface, lifetimes Lifetimes, now time.Time, random io.Reader) (Session, Token, error) {
+// Issue builds a session and its token together, and is the only way to emit a
+// new pair. The token is returned once and is never derivable from what is stored.
+func Issue(account iam.AccountID, kind iam.Kind, surface iam.Surface, lifetimes Lifetimes, now time.Time) (Session, Token, error) {
+	return issue(account, kind, surface, lifetimes, now, rand.Reader)
+}
+
+// issue takes the entropy source so that each of the three draws stays provable.
+// It is unexported: no caller outside this package may choose it.
+func issue(account iam.AccountID, kind iam.Kind, surface iam.Surface, lifetimes Lifetimes, now time.Time, random io.Reader) (Session, Token, error) {
+	// Every business argument is settled before a single byte of entropy is spent.
 	if account.IsZero() {
 		return Session{}, Token{}, fmt.Errorf("%w: no account was named", ErrInvalid)
 	}
@@ -48,21 +56,28 @@ func Issue(account iam.AccountID, kind iam.Kind, surface iam.Surface, lifetimes 
 	if err := lifetimes.Validate(); err != nil {
 		return Session{}, Token{}, err
 	}
-
-	id, err := NewID()
-	if err != nil {
-		return Session{}, Token{}, fmt.Errorf("%w: no session identifier could be drawn", ErrInvalid)
+	// The instant is settled here too: a zero one would produce a record every
+	// write path refuses, after the entropy had already been spent on it.
+	if now.IsZero() {
+		return Session{}, Token{}, fmt.Errorf("%w: no issue instant was given", ErrInvalid)
 	}
-	token, err := NewToken(random)
-	if err != nil {
-		return Session{}, Token{}, err
-	}
-	csrf, err := NewCSRFToken(random)
-	if err != nil {
-		return Session{}, Token{}, err
-	}
-
 	issued := now.UTC()
+
+	// The identifier, the token and the CSRF token, in that order. A failure at
+	// any of the three returns nothing usable.
+	id, err := newID(random)
+	if err != nil {
+		return Session{}, Token{}, err
+	}
+	token, err := newToken(random)
+	if err != nil {
+		return Session{}, Token{}, err
+	}
+	csrf, err := newCSRFToken(random)
+	if err != nil {
+		return Session{}, Token{}, err
+	}
+
 	built := Session{
 		ID:                id,
 		Account:           account,

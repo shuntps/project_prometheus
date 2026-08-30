@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
 )
@@ -41,14 +40,9 @@ func TestTheAdapterNeverReportsAFailureAsAnAbsence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("drawing an account failed: %v", err)
 	}
-	id, err := session.NewID()
-	if err != nil {
-		t.Fatalf("drawing a session identifier failed: %v", err)
-	}
-	token, err := session.NewToken(nil)
-	if err != nil {
-		t.Fatalf("drawing a token failed: %v", err)
-	}
+	idSession, _ := drawn(t)
+	id := idSession.ID
+	_, token := drawn(t)
 	now := time.Now().UTC()
 
 	t.Run("credential", func(t *testing.T) {
@@ -101,11 +95,41 @@ func TestTheAdapterReportsAGenuineAbsenceAsAValue(t *testing.T) {
 	if _, found, err := repository.CredentialByEmail(context.Background(), email); err != nil || found {
 		t.Fatalf("an absent credential produced (found=%v, %v)", found, err)
 	}
-	id, err := session.NewID()
-	if err != nil {
-		t.Fatalf("drawing a session identifier failed: %v", err)
-	}
+	idSession, _ := drawn(t)
+	id := idSession.ID
 	if found, err := repository.RevokeSession(context.Background(), id, time.Now().UTC()); err != nil || found {
 		t.Fatalf("an absent session produced (found=%v, %v)", found, err)
+	}
+}
+
+// TestASuppressedActivityWriteIsStillAnAcceptedOperation pins the translation the
+// adapter performs: the store's boolean says a write happened, the repository's
+// says the session was found and the operation accepted. They are not the same.
+func TestASuppressedActivityWriteIsStillAnAcceptedOperation(t *testing.T) {
+	store, _ := freshStore(t)
+	repository, err := authstore.NewRepository(store)
+	if err != nil {
+		t.Fatalf("building the repository failed: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	account := newAccount(t, store, iam.KindViewer, iam.StatusActive, iam.RoleViewer)
+	sess, _ := openSession(t, store, account.ID, iam.SurfacePublic, now)
+
+	// Inside the activity interval, so the store writes nothing at all.
+	at := now.Add(lifetimes().ActivityInterval / 2)
+	written, err := store.RecordActivity(context.Background(), sess.ID, at, lifetimes())
+	if err != nil {
+		t.Fatalf("recording activity failed: %v", err)
+	}
+	if written {
+		t.Fatal("the store wrote inside the activity interval, so the probe proves nothing")
+	}
+
+	found, err := repository.RecordActivity(context.Background(), sess.ID, at, lifetimes())
+	if err != nil {
+		t.Fatalf("the adapter reported a failure for a suppressed write: %v", err)
+	}
+	if !found {
+		t.Fatal("a suppressed write was reported as an absent session")
 	}
 }

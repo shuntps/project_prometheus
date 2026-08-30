@@ -406,3 +406,20 @@ func messageOf(t *testing.T, res *http.Response) string {
 	}
 	return decoded.Error.Message
 }
+
+// drawn issues a throwaway session so a test needing only a token or a CSRF
+// token takes it from the one authority that emits them.
+func drawn(t *testing.T) (session.Session, session.Token) {
+	t.Helper()
+	account, err := iam.NewAccountID()
+	if err != nil {
+		t.Fatalf("drawing an account identifier failed: %v", err)
+	}
+	sess, token, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic,
+		session.Lifetimes{Absolute: 12 * time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute},
+		time.Now().UTC())
+	if err != nil {
+		t.Fatalf("issuing a session failed: %v", err)
+	}
+	return sess, token
+}

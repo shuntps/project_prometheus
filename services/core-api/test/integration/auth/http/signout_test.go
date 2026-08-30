@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
@@ -63,10 +62,8 @@ func TestSignOutRequiresTheSynchronizerToken(t *testing.T) {
 	if in.response.StatusCode != http.StatusCreated {
 		t.Fatalf("sign-in returned %d", in.response.StatusCode)
 	}
-	forged, err := session.NewCSRFToken(nil)
-	if err != nil {
-		t.Fatalf("drawing failed: %v", err)
-	}
+	forgedSession, _ := drawn(t)
+	forged := forgedSession.CSRF
 
 	cases := map[string]string{
 		"absent":    "",

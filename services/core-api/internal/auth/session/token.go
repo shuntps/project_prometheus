@@ -1,20 +1,18 @@
 package session
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"log/slog"
-	"strings"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
-// TokenBytes gives 256 bits of entropy, comfortably above the 128 bits ASVS
+// tokenBytes gives 256 bits of entropy, comfortably above the 128 bits ASVS
 // v5.0.0-7.2.3 requires, at no interoperability cost for an opaque cookie value.
-const TokenBytes = 32
+const tokenBytes = 32
 
 // Token is the value the browser holds. Every rendering path is overridden so it
 // cannot reach a record, an error, a metric or a test failure.
@@ -22,26 +20,36 @@ type Token struct {
 	raw string
 }
 
-// NewToken draws a token from the injected CSPRNG.
-func NewToken(random io.Reader) (Token, error) {
-	if random == nil {
-		random = rand.Reader
-	}
-	raw := make([]byte, TokenBytes)
+// newToken draws a token from the entropy source Issue was built with.
+func newToken(random io.Reader) (Token, error) {
+	raw := make([]byte, tokenBytes)
 	if _, err := io.ReadFull(random, raw); err != nil {
 		return Token{}, fmt.Errorf("%w: no token could be drawn", ErrInvalid)
 	}
 	return Token{raw: base64.RawURLEncoding.EncodeToString(raw)}, nil
 }
 
-// ParseToken accepts only a value of the exact shape this package issues.
+// canonical accepts only what this package's encoder writes: the input decoded as
+// given, of the expected size, and re-encoding to exactly the input.
+func canonical(raw string, size int) (string, bool) {
+	decoded, err := base64.RawURLEncoding.Strict().DecodeString(raw)
+	if err != nil || len(decoded) != size {
+		return "", false
+	}
+	if base64.RawURLEncoding.EncodeToString(decoded) != raw {
+		return "", false
+	}
+	return raw, true
+}
+
+// ParseToken accepts only a value of the exact shape this package issues. No
+// surrounding space is trimmed: a token the browser altered is not this token.
 func ParseToken(raw string) (Token, error) {
-	trimmed := strings.TrimSpace(raw)
-	decoded, err := base64.RawURLEncoding.DecodeString(trimmed)
-	if err != nil || len(decoded) != TokenBytes {
+	value, ok := canonical(raw, tokenBytes)
+	if !ok {
 		return Token{}, fmt.Errorf("%w: the token is not of the issued shape", ErrInvalid)
 	}
-	return Token{raw: trimmed}, nil
+	return Token{raw: value}, nil
 }
 
 // Reveal returns the value. Only the transport that sets the cookie and the
@@ -76,16 +84,6 @@ func (f Fingerprint) Bytes() []byte {
 	out := make([]byte, len(f.value))
 	copy(out, f.value[:])
 	return out
-}
-
-// FingerprintFrom rebuilds a fingerprint read back from the store.
-func FingerprintFrom(raw []byte) (Fingerprint, error) {
-	if len(raw) != sha256.Size {
-		return Fingerprint{}, fmt.Errorf("%w: the fingerprint is not of the stored size", ErrInvalid)
-	}
-	var f Fingerprint
-	copy(f.value[:], raw)
-	return f, nil
 }
 
 func (f Fingerprint) IsZero() bool { return f == Fingerprint{} }

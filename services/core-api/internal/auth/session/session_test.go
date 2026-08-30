@@ -1,7 +1,6 @@
 package session_test
 
 import (
-	"crypto/rand"
 	"errors"
 	"testing"
 	"time"
@@ -52,10 +51,8 @@ func TestARevokedOrRotatedSessionIsNeverUsable(t *testing.T) {
 	}
 
 	rotated := sess
-	successor, err := session.NewID()
-	if err != nil {
-		t.Fatalf("drawing a session identifier failed: %v", err)
-	}
+	next, _ := issue(t, time.Now())
+	successor := next.ID
 	rotated.RotatedTo = &successor
 	if err := rotated.UsableAt(when); !errors.Is(err, session.ErrUnusable) {
 		t.Error("a rotated session was accepted")
@@ -68,12 +65,12 @@ func TestARevokedOrRotatedSessionIsNeverUsable(t *testing.T) {
 
 func TestASessionIsAlwaysBoundToOneKnownSurface(t *testing.T) {
 	for _, surface := range []iam.Surface{"", "edge", "admin", "Operator"} {
-		if _, _, err := session.Issue(mustAccount(t), iam.KindViewer, surface, lifetimes(), time.Now(), rand.Reader); !errors.Is(err, session.ErrInvalid) {
+		if _, _, err := session.Issue(mustAccount(t), iam.KindViewer, surface, lifetimes(), time.Now()); !errors.Is(err, session.ErrInvalid) {
 			t.Errorf("surface %q was accepted", surface)
 		}
 	}
 	for surface, kind := range map[iam.Surface]iam.Kind{iam.SurfacePublic: iam.KindViewer, iam.SurfaceOperator: iam.KindOperator} {
-		sess, _, err := session.Issue(mustAccount(t), kind, surface, lifetimes(), time.Now(), rand.Reader)
+		sess, _, err := session.Issue(mustAccount(t), kind, surface, lifetimes(), time.Now())
 		if err != nil {
 			t.Errorf("surface %q was refused: %v", surface, err)
 			continue
@@ -82,7 +79,7 @@ func TestASessionIsAlwaysBoundToOneKnownSurface(t *testing.T) {
 			t.Errorf("the session settled on surface %q", sess.Surface)
 		}
 	}
-	if _, _, err := session.Issue(iam.AccountID{}, iam.KindViewer, iam.SurfacePublic, lifetimes(), time.Now(), rand.Reader); !errors.Is(err, session.ErrInvalid) {
+	if _, _, err := session.Issue(iam.AccountID{}, iam.KindViewer, iam.SurfacePublic, lifetimes(), time.Now()); !errors.Is(err, session.ErrInvalid) {
 		t.Error("a session was issued for the zero account")
 	}
 }

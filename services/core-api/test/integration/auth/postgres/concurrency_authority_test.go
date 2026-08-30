@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"sync"
 	"testing"
@@ -27,7 +26,7 @@ func TestConcurrentSessionWorkStaysConsistent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sess, token, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now, rand.Reader)
+			sess, token, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now)
 			if err != nil {
 				errs <- err
 				return

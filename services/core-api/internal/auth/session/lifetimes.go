@@ -16,30 +16,30 @@ type Lifetimes struct {
 }
 
 const (
-	MinIdle             = time.Minute
-	MinAbsolute         = 5 * time.Minute
-	MaxAbsolute         = 30 * 24 * time.Hour
-	MinActivityInterval = time.Second
+	minIdle             = time.Minute
+	minAbsolute         = 5 * time.Minute
+	maxAbsolute         = 30 * 24 * time.Hour
+	minActivityInterval = time.Second
 )
 
 // Validate keeps the two expiries distinct and ordered.
 func (l Lifetimes) Validate() error {
 	var problems []string
-	if l.Idle < MinIdle {
-		problems = append(problems, fmt.Sprintf("the idle lifetime must be at least %s", MinIdle))
+	if l.Idle < minIdle {
+		problems = append(problems, fmt.Sprintf("the idle lifetime must be at least %s", minIdle))
 	}
-	if l.Absolute < MinAbsolute || l.Absolute > MaxAbsolute {
-		problems = append(problems, fmt.Sprintf("the absolute lifetime must be between %s and %s", MinAbsolute, MaxAbsolute))
+	if l.Absolute < minAbsolute || l.Absolute > maxAbsolute {
+		problems = append(problems, fmt.Sprintf("the absolute lifetime must be between %s and %s", minAbsolute, maxAbsolute))
 	}
-	if l.Idle >= MinIdle && l.Absolute >= MinAbsolute && l.Idle > l.Absolute {
+	if l.Idle >= minIdle && l.Absolute >= minAbsolute && l.Idle > l.Absolute {
 		problems = append(problems, "the idle lifetime must not exceed the absolute lifetime")
 	}
-	if l.ActivityInterval < MinActivityInterval {
-		problems = append(problems, fmt.Sprintf("the activity interval must be at least %s", MinActivityInterval))
+	if l.ActivityInterval < minActivityInterval {
+		problems = append(problems, fmt.Sprintf("the activity interval must be at least %s", minActivityInterval))
 	}
 	// An interval at or above the idle lifetime would let a session expire between
 	// two updates the policy permits, which is the opposite of what it is for.
-	if l.ActivityInterval >= MinActivityInterval && l.Idle >= MinIdle && l.ActivityInterval >= l.Idle {
+	if l.ActivityInterval >= minActivityInterval && l.Idle >= minIdle && l.ActivityInterval >= l.Idle {
 		problems = append(problems, "the activity interval must be shorter than the idle lifetime")
 	}
 	if len(problems) > 0 {

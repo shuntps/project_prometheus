@@ -1,9 +1,9 @@
 package auth_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
+	"testing"
 	"time"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
@@ -21,8 +21,6 @@ var (
 func clock() func() time.Time { return func() time.Time { return fixedNow } }
 
 // entropy is deterministic so a failing case never depends on the machine.
-func entropy() *bytes.Reader { return bytes.NewReader(bytes.Repeat([]byte{7}, 4096)) }
-
 // hasher counts what was verified, so work parity is asserted on calls rather
 // than on elapsed time, which no test can measure reliably.
 type hasher struct {
@@ -103,4 +101,19 @@ func (r *repository) RecordActivity(_ context.Context, _ session.ID, now time.Ti
 	r.activityCalls++
 	r.activityAt = now
 	return r.activityFound, r.activityErr
+}
+
+// drawn issues a throwaway session so a test needing only an identifier or a
+// token takes it from the one authority that emits them.
+func drawn(t *testing.T) (session.Session, session.Token) {
+	t.Helper()
+	account, err := iam.NewAccountID()
+	if err != nil {
+		t.Fatalf("drawing an account identifier failed: %v", err)
+	}
+	sess, token, err := session.Issue(account, iam.KindViewer, iam.SurfacePublic, lifetimes, fixedNow)
+	if err != nil {
+		t.Fatalf("issuing a session failed: %v", err)
+	}
+	return sess, token
 }

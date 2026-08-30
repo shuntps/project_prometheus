@@ -1,7 +1,6 @@
 package session_test
 
 import (
-	"crypto/rand"
 	"errors"
 	"testing"
 	"time"
@@ -26,7 +25,7 @@ func TestLifetimesAreBoundedAndOrdered(t *testing.T) {
 			if err := l.Validate(); !errors.Is(err, session.ErrInvalid) {
 				t.Fatalf("got %v, want a refusal", err)
 			}
-			if _, _, err := session.Issue(mustAccount(t), iam.KindViewer, iam.SurfacePublic, l, time.Now(), rand.Reader); err == nil {
+			if _, _, err := session.Issue(mustAccount(t), iam.KindViewer, iam.SurfacePublic, l, time.Now()); err == nil {
 				t.Fatal("a session was issued from unusable lifetimes")
 			}
 		})

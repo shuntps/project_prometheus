@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"testing"
 	"time"
@@ -20,7 +19,7 @@ func TestRotationInvalidatesThePreviousTokenAtomically(t *testing.T) {
 	account := newAccount(t, store, iam.KindViewer, iam.StatusActive, iam.RoleViewer)
 	previous, previousToken := openSession(t, store, account.ID, iam.SurfacePublic, now)
 
-	successor, successorToken, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now.Add(time.Minute), rand.Reader)
+	successor, successorToken, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("issuing the successor failed: %v", err)
 	}
@@ -51,7 +50,7 @@ func TestRotationRefusesASuccessorFromAnotherAccount(t *testing.T) {
 	stranger := newAccount(t, store, iam.KindViewer, iam.StatusActive, iam.RoleViewer)
 	previous, previousToken := openSession(t, store, holder.ID, iam.SurfacePublic, now)
 
-	foreign, _, err := session.Issue(stranger.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now.Add(time.Minute), rand.Reader)
+	foreign, _, err := session.Issue(stranger.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
@@ -72,7 +71,7 @@ func TestRotationRefusesASuccessorOnAnotherSurface(t *testing.T) {
 	holder := newAccount(t, store, iam.KindViewer, iam.StatusActive, iam.RoleViewer)
 	previous, previousToken := openSession(t, store, holder.ID, iam.SurfacePublic, now)
 
-	elevated, _, err := session.Issue(holder.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now.Add(time.Minute), rand.Reader)
+	elevated, _, err := session.Issue(holder.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
@@ -115,7 +114,7 @@ func TestRotationRefusesAnUnusablePredecessor(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			previous, _ := openSession(t, store, account.ID, iam.SurfacePublic, now)
 			at := when(t, previous)
-			successor, _, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), at, rand.Reader)
+			successor, _, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), at)
 			if err != nil {
 				t.Fatalf("issuing failed: %v", err)
 			}
@@ -133,10 +132,8 @@ func TestRotationRefusesAnUnusablePredecessor(t *testing.T) {
 
 func mustSessionID(t *testing.T) session.ID {
 	t.Helper()
-	id, err := session.NewID()
-	if err != nil {
-		t.Fatalf("drawing a session identifier failed: %v", err)
-	}
+	idSession, _ := drawn(t)
+	id := idSession.ID
 	return id
 }
 
@@ -155,7 +152,7 @@ func TestRotationJudgesThePredecessorOnItsOwnInstant(t *testing.T) {
 		}
 
 		backdated := previous.IdleExpiresAt.Add(-time.Minute)
-		successor, successorToken, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), backdated, rand.Reader)
+		successor, successorToken, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), backdated)
 		if err != nil {
 			t.Fatalf("issuing failed: %v", err)
 		}
@@ -198,7 +195,7 @@ func TestRotationJudgesThePredecessorOnItsOwnInstant(t *testing.T) {
 	t.Run("a live predecessor still rotates at the operation's instant", func(t *testing.T) {
 		previous, previousToken := openSession(t, store, account.ID, iam.SurfacePublic, start)
 		at := start.Add(time.Minute)
-		successor, successorToken, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), at, rand.Reader)
+		successor, successorToken, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), at)
 		if err != nil {
 			t.Fatalf("issuing failed: %v", err)
 		}

@@ -1,20 +1,18 @@
 package session
 
 import (
-	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"log/slog"
-	"strings"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
-// CSRFTokenBytes matches the session token: the value is a bearer secret for the
+// csrfTokenBytes matches the session token: the value is a bearer secret for the
 // request that carries it, so it is drawn at the same strength.
-const CSRFTokenBytes = 32
+const csrfTokenBytes = 32
 
 // CSRFToken is the synchronizer token bound to one session. Unlike the session
 // token it is stored as issued, because the server has to hand it back.
@@ -22,26 +20,23 @@ type CSRFToken struct {
 	raw string
 }
 
-// NewCSRFToken draws a token from the injected CSPRNG.
-func NewCSRFToken(random io.Reader) (CSRFToken, error) {
-	if random == nil {
-		random = rand.Reader
-	}
-	raw := make([]byte, CSRFTokenBytes)
+// newCSRFToken draws a token from the entropy source Issue was built with.
+func newCSRFToken(random io.Reader) (CSRFToken, error) {
+	raw := make([]byte, csrfTokenBytes)
 	if _, err := io.ReadFull(random, raw); err != nil {
 		return CSRFToken{}, fmt.Errorf("%w: no CSRF token could be drawn", ErrInvalid)
 	}
 	return CSRFToken{raw: base64.RawURLEncoding.EncodeToString(raw)}, nil
 }
 
-// ParseCSRFToken accepts only a value of the exact shape this package issues.
+// ParseCSRFToken accepts only a value of the exact shape this package issues. No
+// surrounding space is trimmed: a header the client altered is not this token.
 func ParseCSRFToken(raw string) (CSRFToken, error) {
-	trimmed := strings.TrimSpace(raw)
-	decoded, err := base64.RawURLEncoding.DecodeString(trimmed)
-	if err != nil || len(decoded) != CSRFTokenBytes {
+	value, ok := canonical(raw, csrfTokenBytes)
+	if !ok {
 		return CSRFToken{}, fmt.Errorf("%w: the CSRF token is not of the issued shape", ErrInvalid)
 	}
-	return CSRFToken{raw: trimmed}, nil
+	return CSRFToken{raw: value}, nil
 }
 
 // Reveal returns the value. Only the transport that hands the token to the client

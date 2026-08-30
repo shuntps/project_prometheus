@@ -71,7 +71,7 @@ func TestUsingRevokingAndRotatingRaceWithoutRestoringASession(t *testing.T) {
 	current := sessionIDOf(t, s, account)
 
 	successor, _, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic,
-		session.Lifetimes{Absolute: 12 * time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute}, s.clock.Now(), nil)
+		session.Lifetimes{Absolute: 12 * time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute}, s.clock.Now())
 	if err != nil {
 		t.Fatalf("issuing a successor failed: %v", err)
 	}

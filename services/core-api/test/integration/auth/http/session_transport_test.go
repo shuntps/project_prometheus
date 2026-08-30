@@ -141,10 +141,7 @@ func TestAnUnusableTokenNeverResolves(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the issued token does not parse: %v", err)
 	}
-	drawn, err := session.NewToken(nil)
-	if err != nil {
-		t.Fatalf("drawing failed: %v", err)
-	}
+	_, drawn := drawn(t)
 
 	cases := map[string]string{
 		"absent":                  "",

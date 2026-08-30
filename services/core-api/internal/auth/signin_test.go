@@ -27,7 +27,7 @@ func newSignIn(t *testing.T, repo *repository, h *hasher, l *limiter) *auth.Sign
 	t.Helper()
 	use, err := auth.NewSignIn(auth.SignInOptions{
 		Repository: repo, Hasher: h, Limiter: l, Lifetimes: lifetimes,
-		Now: clock(), Random: entropy(),
+		Now: clock(),
 	})
 	if err != nil {
 		t.Fatalf("building the use case failed: %v", err)
@@ -115,10 +115,8 @@ func TestAnAbsenceIsNotAFailure(t *testing.T) {
 // TestThePresentedSessionReachesTheReplacement keeps a sign-in from leaving the
 // session the request arrived with alive beside the new one.
 func TestThePresentedSessionReachesTheReplacement(t *testing.T) {
-	id, err := session.NewID()
-	if err != nil {
-		t.Fatalf("drawing a session identifier failed: %v", err)
-	}
+	sess, _ := drawn(t)
+	id := sess.ID
 	credential := usableCredential(t)
 	repo := &repository{
 		credential: credential, credentialFound: true,
@@ -130,10 +128,7 @@ func TestThePresentedSessionReachesTheReplacement(t *testing.T) {
 		},
 		replaceFound: true,
 	}
-	token, err := session.NewToken(entropy())
-	if err != nil {
-		t.Fatalf("drawing a token failed: %v", err)
-	}
+	_, token := drawn(t)
 	result, err := newSignIn(t, repo, &hasher{}, &limiter{allow: true}).
 		Execute(context.Background(), auth.SignInRequest{Email: "a@example.com", Presented: &token})
 	if err != nil {
@@ -193,7 +188,7 @@ func TestAReplacementRefusedIsNotAFailure(t *testing.T) {
 func TestAPartialSignInUseCaseIsRefused(t *testing.T) {
 	complete := auth.SignInOptions{
 		Repository: &repository{}, Hasher: &hasher{}, Limiter: &limiter{allow: true},
-		Lifetimes: lifetimes, Now: clock(), Random: entropy(),
+		Lifetimes: lifetimes, Now: clock(),
 	}
 	for name, breakIt := range map[string]func(*auth.SignInOptions){
 		"no repository": func(o *auth.SignInOptions) { o.Repository = nil },

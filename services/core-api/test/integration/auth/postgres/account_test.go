@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"sync"
 	"testing"
@@ -82,7 +81,7 @@ func TestAnAccountSuspendedAfterItsCredentialWasReadCreatesNoSession(t *testing.
 	}
 	before := readLedger(t, pool)
 
-	successor, _, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now, rand.Reader)
+	successor, _, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now)
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
@@ -117,7 +116,7 @@ func TestCreationAndSuspensionSerialiseIntoAValidOrder(t *testing.T) {
 		store, pool := freshStore(t)
 		now := time.Now().UTC()
 		account := newAccount(t, store, iam.KindViewer, iam.StatusActive, iam.RoleViewer)
-		successor, token, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now, rand.Reader)
+		successor, token, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now)
 		if err != nil {
 			t.Fatalf("issuing failed: %v", err)
 		}
@@ -178,7 +177,7 @@ func TestCreationWaitsForAnUncommittedSuspension(t *testing.T) {
 	store, pool := freshStore(t)
 	now := time.Now().UTC()
 	account := newAccount(t, store, iam.KindViewer, iam.StatusActive, iam.RoleViewer)
-	successor, _, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now, rand.Reader)
+	successor, _, err := session.Issue(account.ID, iam.KindViewer, iam.SurfacePublic, lifetimes(), now)
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}

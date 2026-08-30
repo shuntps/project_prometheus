@@ -66,7 +66,6 @@ type SignInOptions struct {
 	Limiter    AttemptLimiter
 	Lifetimes  session.Lifetimes
 	Now        func() time.Time
-	Random     io.Reader
 }
 
 type SignIn struct {
@@ -75,13 +74,30 @@ type SignIn struct {
 	limiter    AttemptLimiter
 	lifetimes  session.Lifetimes
 	now        func() time.Time
-	random     io.Reader
+	// issue emits the session a successful sign-in replaces the presented one
+	// with. It is held rather than consumed at construction.
+	issue issueFunc
 	// decoy carries the configured parameters, so verifying against it costs the
 	// same memory and passes as verifying a real credential.
 	decoy password.Encoded
 }
 
+// issueFunc is what emits a session. It matches session.Issue, which the public
+// constructor always supplies; the private one takes it so a failure is provable.
+type issueFunc func(iam.AccountID, iam.Kind, iam.Surface, session.Lifetimes, time.Time) (session.Session, session.Token, error)
+
+// NewSignIn builds the sign-in use case. It always draws the decoy seed from the
+// process entropy source and always emits sessions through session.Issue.
 func NewSignIn(opts SignInOptions) (*SignIn, error) {
+	return newSignIn(opts, rand.Reader, session.Issue)
+}
+
+// newSignIn takes the entropy source and the emitter so both failure paths stay
+// provable. It is unexported: no caller outside this package may choose either.
+func newSignIn(opts SignInOptions, random io.Reader, issue issueFunc) (*SignIn, error) {
+	if issue == nil {
+		return nil, errors.New("signing in requires a session emitter")
+	}
 	switch {
 	case opts.Repository == nil:
 		return nil, errors.New("signing in requires a repository")
@@ -94,10 +110,6 @@ func NewSignIn(opts SignInOptions) (*SignIn, error) {
 		return nil, err
 	}
 
-	random := opts.Random
-	if random == nil {
-		random = rand.Reader
-	}
 	now := opts.Now
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
@@ -116,7 +128,7 @@ func NewSignIn(opts SignInOptions) (*SignIn, error) {
 
 	return &SignIn{
 		repository: opts.Repository, hasher: opts.Hasher, limiter: opts.Limiter,
-		lifetimes: opts.Lifetimes, now: now, random: random, decoy: decoy,
+		lifetimes: opts.Lifetimes, now: now, issue: issue, decoy: decoy,
 	}, nil
 }
 
@@ -166,7 +178,7 @@ func (s *SignIn) Execute(ctx context.Context, req SignInRequest) (SignInResult, 
 	}
 	// The successor exists before any irreversible write, so the replacement below
 	// either ends the old session and creates this one, or changes nothing.
-	successor, token, err := session.Issue(credential.Account, credential.Kind, iam.SurfacePublic, s.lifetimes, now, s.random)
+	successor, token, err := s.issue(credential.Account, credential.Kind, iam.SurfacePublic, s.lifetimes, now)
 	if err != nil {
 		return SignInResult{}, ErrUnavailable
 	}
