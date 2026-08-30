@@ -58,8 +58,12 @@ func accountOfSession(ctx context.Context, tx pgx.Tx, id session.ID) (iam.Accoun
 func (s *Store) Resolve(ctx context.Context, token session.Token, now time.Time) (Resolved, error) {
 	fingerprint := token.Fingerprint()
 
-	const query = `SELECT s.id, s.account_id, s.csrf_token, s.surface, s.created_at, s.last_active_at,
-			s.idle_expires_at, s.absolute_expires_at, s.revoked_at, s.rotated_to, a.status, a.kind
+	// One statement, so the session, the status, the kind and the grants all come
+	// from a single snapshot. The array subquery yields an empty array, never null.
+	const query = `/* authstore.Resolve */
+		SELECT s.id, s.account_id, s.csrf_token, s.surface, s.created_at, s.last_active_at,
+			s.idle_expires_at, s.absolute_expires_at, s.revoked_at, s.rotated_to, a.status, a.kind,
+			ARRAY(SELECT r.role FROM account_role_grants r WHERE r.account_id = s.account_id ORDER BY r.role)
 		FROM account_sessions s
 		JOIN accounts a ON a.id = s.account_id
 		WHERE s.token_fingerprint = $1`
@@ -73,10 +77,11 @@ func (s *Store) Resolve(ctx context.Context, token session.Token, now time.Time)
 		status    string
 		rawKind   string
 		rotatedTo *uuid.UUID
+		rawRoles  []string
 	)
 	err := s.pool.QueryRow(ctx, query, fingerprint.Bytes()).Scan(
 		&id, &accountID, &rawCSRF, &surface, &sess.CreatedAt, &sess.LastActiveAt,
-		&sess.IdleExpiresAt, &sess.AbsoluteExpiresAt, &sess.RevokedAt, &rotatedTo, &status, &rawKind)
+		&sess.IdleExpiresAt, &sess.AbsoluteExpiresAt, &sess.RevokedAt, &rotatedTo, &status, &rawKind, &rawRoles)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Resolved{}, ErrNotFound
@@ -115,9 +120,12 @@ func (s *Store) Resolve(ctx context.Context, token session.Token, now time.Time)
 		return Resolved{}, ErrNotFound
 	}
 
-	roles, err := s.roles(ctx, sess.Account)
-	if err != nil {
-		return Resolved{}, err
+	var roles []iam.Role
+	for _, raw := range rawRoles {
+		// An unknown stored value is dropped rather than trusted as a role.
+		if role, known := iam.ParseRole(raw); known {
+			roles = append(roles, role)
+		}
 	}
 	return Resolved{
 		Session: sess,
