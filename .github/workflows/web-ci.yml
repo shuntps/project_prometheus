@@ -31,15 +31,19 @@ jobs:
         with:
           persist-credentials: false
 
-      # The package manager version comes from the workspace manifest.
+      # This repository permits a short list of actions, so the toolchain comes
+      # from the Node the runner ships and the version pinned in the manifest.
       - name: Set up pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: pnpm
+        timeout-minutes: 5
+        run: |
+          node --version
+          major="$(node -p 'process.versions.node.split(".")[0]')"
+          if [ "$major" -lt 22 ]; then
+            echo "the runner ships node $major; this workspace requires 22 or later" >&2
+            exit 1
+          fi
+          corepack enable pnpm
+          pnpm --version
 
       - name: Install the workspace
         timeout-minutes: 10
@@ -81,14 +85,19 @@ jobs:
         with:
           persist-credentials: false
 
+      # This repository permits a short list of actions, so the toolchain comes
+      # from the Node the runner ships and the version pinned in the manifest.
       - name: Set up pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: pnpm
+        timeout-minutes: 5
+        run: |
+          node --version
+          major="$(node -p 'process.versions.node.split(".")[0]')"
+          if [ "$major" -lt 22 ]; then
+            echo "the runner ships node $major; this workspace requires 22 or later" >&2
+            exit 1
+          fi
+          corepack enable pnpm
+          pnpm --version
 
       - name: Install the workspace
         timeout-minutes: 10
