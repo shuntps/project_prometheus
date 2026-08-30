@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
 // nonCanonicalVariants returns the encodings that decode to the same bytes as
@@ -87,46 +88,79 @@ func TestOnlyTheCanonicalEncodingIsAccepted(t *testing.T) {
 	}
 }
 
-// TestTheBearerValuesAreRedactedThroughEveryEncoder completes the redaction
-// matrix with the encoders the earlier proofs did not reach.
-func TestTheBearerValuesAreRedactedThroughEveryEncoder(t *testing.T) {
+// TestEveryBearerValueMarshalsToTheRedactionMarker keeps the text encoders from
+// passing by returning nothing: each must be exactly the marker.
+func TestEveryBearerValueMarshalsToTheRedactionMarker(t *testing.T) {
 	sess, token := issue(t, time.Unix(1_700_000_000, 0).UTC())
 	fingerprint := token.Fingerprint()
 
-	if (session.Token{}).IsZero() != true || token.IsZero() {
-		t.Error("IsZero does not separate a drawn token from the zero value")
-	}
-
-	for name, probe := range map[string]struct {
-		text  func() ([]byte, error)
-		value string
-	}{
-		"token":       {token.MarshalText, token.Reveal()},
-		"CSRF token":  {sess.CSRF.MarshalText, sess.CSRF.Reveal()},
-		"fingerprint": {fingerprint.MarshalText, fmt.Sprintf("%x", fingerprint.Bytes())},
+	for name, marshal := range map[string]func() ([]byte, error){
+		"token":       token.MarshalText,
+		"CSRF token":  sess.CSRF.MarshalText,
+		"fingerprint": fingerprint.MarshalText,
 	} {
-		text, err := probe.text()
+		text, err := marshal()
 		if err != nil {
 			t.Fatalf("marshalling the %s failed: %v", name, err)
 		}
-		if strings.Contains(string(text), probe.value) {
-			t.Errorf("MarshalText carries the %s", name)
+		if string(text) != iam.Redacted {
+			t.Errorf("the %s marshalled to %q, want exactly %q", name, text, iam.Redacted)
 		}
 	}
+}
 
-	// A map key goes through TextMarshaler rather than through MarshalJSON.
-	keyed, err := json.Marshal(map[session.Token]string{token: "value"})
-	if err != nil {
-		t.Fatalf("encoding failed: %v", err)
+// TestABearerValueUsedAsAJSONKeyBecomesTheMarker: encoding/json takes a map key
+// through TextMarshaler, so the key itself must be the marker and nothing else.
+func TestABearerValueUsedAsAJSONKeyBecomesTheMarker(t *testing.T) {
+	sess, token := issue(t, time.Unix(1_700_000_000, 0).UTC())
+	fingerprint := token.Fingerprint()
+
+	for name, probe := range map[string]struct {
+		encode func() ([]byte, error)
+		secret string
+	}{
+		"token": {func() ([]byte, error) {
+			return json.Marshal(map[session.Token]string{token: "value"})
+		}, token.Reveal()},
+		"CSRF token": {func() ([]byte, error) {
+			return json.Marshal(map[session.CSRFToken]string{sess.CSRF: "value"})
+		}, sess.CSRF.Reveal()},
+		"fingerprint": {func() ([]byte, error) {
+			return json.Marshal(map[session.Fingerprint]string{fingerprint: "value"})
+		}, fmt.Sprintf("%x", fingerprint.Bytes())},
+	} {
+		t.Run(name, func(t *testing.T) {
+			encoded, err := probe.encode()
+			if err != nil {
+				t.Fatalf("encoding failed: %v", err)
+			}
+			var decoded map[string]string
+			if err := json.Unmarshal(encoded, &decoded); err != nil {
+				t.Fatalf("the encoded map is not an object: %v", err)
+			}
+			if len(decoded) != 1 {
+				t.Fatalf("the object holds %d keys, want exactly one", len(decoded))
+			}
+			for key := range decoded {
+				if key != iam.Redacted {
+					t.Errorf("the key is %q, want exactly %q", key, iam.Redacted)
+				}
+			}
+			if strings.Contains(string(encoded), probe.secret) {
+				t.Errorf("the %s escaped as a JSON object key", name)
+			}
+		})
 	}
-	if strings.Contains(string(keyed), token.Reveal()) {
-		t.Error("the token escaped as a JSON object key")
+}
+
+// TestTheZeroTokenIsSeparatedFromADrawnOne covers the accessor the store uses to
+// decide whether a value was ever drawn.
+func TestTheZeroTokenIsSeparatedFromADrawnOne(t *testing.T) {
+	_, token := issue(t, time.Unix(1_700_000_000, 0).UTC())
+	if !(session.Token{}).IsZero() {
+		t.Error("the zero token does not report itself as zero")
 	}
-	keyedCSRF, err := json.Marshal(map[session.CSRFToken]string{sess.CSRF: "value"})
-	if err != nil {
-		t.Fatalf("encoding failed: %v", err)
-	}
-	if strings.Contains(string(keyedCSRF), sess.CSRF.Reveal()) {
-		t.Error("the CSRF token escaped as a JSON object key")
+	if token.IsZero() {
+		t.Error("a drawn token reports itself as zero")
 	}
 }

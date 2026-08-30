@@ -90,34 +90,39 @@ func TestAnIssuanceRefusalNamesNothingAboutItsSource(t *testing.T) {
 // TestBusinessArgumentsAreSettledBeforeAnyEntropyIsSpent keeps a refusal the
 // domain decides from consuming the process entropy source.
 func TestBusinessArgumentsAreSettledBeforeAnyEntropyIsSpent(t *testing.T) {
-	for name, run := range map[string]func(io.Reader) error{
-		"no account": func(r io.Reader) error {
-			_, _, err := issue(iam.AccountID{}, iam.KindViewer, iam.SurfacePublic, usableLifetimes(), time.Now(), r)
-			return err
+	for name, run := range map[string]func(io.Reader) (Session, Token, error){
+		"no account": func(r io.Reader) (Session, Token, error) {
+			return issue(iam.AccountID{}, iam.KindViewer, iam.SurfacePublic, usableLifetimes(), time.Now(), r)
 		},
-		"surface the kind may not open": func(r io.Reader) error {
-			_, _, err := issue(anAccount(t), iam.KindViewer, iam.SurfaceOperator, usableLifetimes(), time.Now(), r)
-			return err
+		"surface the kind may not open": func(r io.Reader) (Session, Token, error) {
+			return issue(anAccount(t), iam.KindViewer, iam.SurfaceOperator, usableLifetimes(), time.Now(), r)
 		},
-		"unusable lifetimes": func(r io.Reader) error {
-			_, _, err := issue(anAccount(t), iam.KindViewer, iam.SurfacePublic, Lifetimes{}, time.Now(), r)
-			return err
+		"unusable lifetimes": func(r io.Reader) (Session, Token, error) {
+			return issue(anAccount(t), iam.KindViewer, iam.SurfacePublic, Lifetimes{}, time.Now(), r)
+		},
+		"zero issue time": func(r io.Reader) (Session, Token, error) {
+			return issue(anAccount(t), iam.KindViewer, iam.SurfacePublic, usableLifetimes(), time.Time{}, r)
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			reader := &countingReader{yield: 4096}
-			if err := run(reader); !errors.Is(err, ErrInvalid) {
+			sess, token, err := run(reader)
+			if !errors.Is(err, ErrInvalid) {
 				t.Fatalf("got %v, want a refusal", err)
 			}
 			if reader.calls != 0 {
 				t.Fatalf("the entropy source was read %d time(s) for an argument that was refused", reader.calls)
 			}
+			if sess != (Session{}) || !token.IsZero() {
+				t.Errorf("a refused argument produced %+v and the token %v", sess, token.IsZero())
+			}
 		})
 	}
 }
 
-// TestTheAdoptedSizesAreDrawnWhole covers ASVS v5.0.0-7.2.3: a CSPRNG and at
-// least 128 bits. The adopted size is 256 bits for both bearer values.
+// TestTheAdoptedSizesAreDrawnWhole establishes the sizes drawn, not the quality
+// of the source: the public path is wired to crypto/rand.Reader, which is what
+// makes it a CSPRNG. The adopted size is 256 bits for both bearer values.
 func TestTheAdoptedSizesAreDrawnWhole(t *testing.T) {
 	reader := &countingReader{yield: 4096}
 	sess, token, err := issue(anAccount(t), iam.KindViewer, iam.SurfacePublic, usableLifetimes(), time.Now(), reader)
@@ -144,8 +149,8 @@ func TestTheAdoptedSizesAreDrawnWhole(t *testing.T) {
 	}
 }
 
-// TestTwoIssuancesShareNothing keeps a repeated draw from producing the same
-// identifier, token or CSRF token.
+// TestTwoIssuancesShareNothing is a collision check over the sample it runs, not
+// a general proof of independence: a repeat inside it would be a defect.
 func TestTwoIssuancesShareNothing(t *testing.T) {
 	const draws = 256
 	ids := make(map[string]struct{}, draws)

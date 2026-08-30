@@ -35,8 +35,8 @@ type Session struct {
 	RotatedTo         *ID
 }
 
-// Issue builds a session and its token together. The token is returned once and
-// is never derivable from what is stored. It is the only way to obtain either.
+// Issue builds a session and its token together, and is the only way to emit a
+// new pair. The token is returned once and is never derivable from what is stored.
 func Issue(account iam.AccountID, kind iam.Kind, surface iam.Surface, lifetimes Lifetimes, now time.Time) (Session, Token, error) {
 	return issue(account, kind, surface, lifetimes, now, rand.Reader)
 }
@@ -56,6 +56,12 @@ func issue(account iam.AccountID, kind iam.Kind, surface iam.Surface, lifetimes 
 	if err := lifetimes.Validate(); err != nil {
 		return Session{}, Token{}, err
 	}
+	// The instant is settled here too: a zero one would produce a record every
+	// write path refuses, after the entropy had already been spent on it.
+	if now.IsZero() {
+		return Session{}, Token{}, fmt.Errorf("%w: no issue instant was given", ErrInvalid)
+	}
+	issued := now.UTC()
 
 	// The identifier, the token and the CSRF token, in that order. A failure at
 	// any of the three returns nothing usable.
@@ -72,7 +78,6 @@ func issue(account iam.AccountID, kind iam.Kind, surface iam.Surface, lifetimes 
 		return Session{}, Token{}, err
 	}
 
-	issued := now.UTC()
 	built := Session{
 		ID:                id,
 		Account:           account,

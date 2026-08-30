@@ -87,3 +87,47 @@ func TestEachTypeExportsOnlyTheMethodsItsConsumersCall(t *testing.T) {
 		})
 	}
 }
+
+// TestEachTypeExposesOnlyTheFieldsItsConsumersRead completes the two guards
+// above, which read declarations and methods but never fields.
+func TestEachTypeExposesOnlyTheFieldsItsConsumersRead(t *testing.T) {
+	for _, surface := range []struct {
+		name string
+		typ  reflect.Type
+		want []string
+	}{
+		{"Session", reflect.TypeOf(Session{}), []string{
+			"ID", "Account", "Surface", "Fingerprint", "CSRF",
+			"CreatedAt", "LastActiveAt", "IdleExpiresAt", "AbsoluteExpiresAt",
+			"RevokedAt", "RotatedTo",
+		}},
+		{"Lifetimes", reflect.TypeOf(Lifetimes{}), []string{"Absolute", "Idle", "ActivityInterval"}},
+		{"Token", reflect.TypeOf(Token{}), nil},
+		{"CSRFToken", reflect.TypeOf(CSRFToken{}), nil},
+		{"Fingerprint", reflect.TypeOf(Fingerprint{}), nil},
+		// ID is an array type, not a struct: it has no fields to expose.
+	} {
+		t.Run(surface.name, func(t *testing.T) {
+			want := map[string]bool{}
+			for _, name := range surface.want {
+				want[name] = true
+			}
+			got := map[string]bool{}
+			for i := range surface.typ.NumField() {
+				if field := surface.typ.Field(i); field.IsExported() {
+					got[field.Name] = true
+				}
+			}
+			for name := range got {
+				if !want[name] {
+					t.Errorf("%s exposes the field %q, which no consumer reads", surface.name, name)
+				}
+			}
+			for name := range want {
+				if !got[name] {
+					t.Errorf("%s no longer exposes the field %q", surface.name, name)
+				}
+			}
+		})
+	}
+}
