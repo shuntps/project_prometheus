@@ -8,6 +8,13 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/core-api ./cmd/api
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/core-api-migrate ./cmd/migrate
 
+# Development only: the build stage already holds the toolchain and the module
+# cache, so this adds a command rather than a second image definition. The binary
+# replaces the shell, so the service itself is what receives SIGTERM.
+FROM build AS development
+EXPOSE 8080
+CMD ["sh", "-c", "go build -o /tmp/core-api ./cmd/api && exec /tmp/core-api"]
+
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 WORKDIR /
 COPY --from=build /out/core-api /core-api

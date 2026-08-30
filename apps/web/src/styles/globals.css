@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+/*
+  Roles, not raw colours. Every value comes from the design system's verified
+  token set; components resolve a role and never repeat a hexadecimal value.
+*/
+@theme {
+  --color-background: #0b0f19;
+  --color-surface: #1e1b4b;
+  --color-surface-high: #272554;
+  --color-surface-highest: #302d63;
+
+  --color-on-surface: #e2e8f0;
+  --color-on-surface-variant: #94a3b8;
+  --color-disabled: #7c8598;
+
+  --color-primary: #f472b6;
+  --color-on-primary: #1a1024;
+  --color-tertiary: #c084fc;
+  --color-on-tertiary: #1a1024;
+  --color-success: #34d399;
+  --color-on-success: #1a1024;
+  --color-error: #ef4444;
+  --color-on-error: #1a1024;
+  --color-error-text: #f98080;
+  --color-live: #2dd4bf;
+  --color-on-live: #1a1024;
+
+  --color-outline: #6b67a0;
+  --color-outline-strong: #8984c0;
+  --color-scrim: #03040a;
+
+  /* The focus indicator is two rings: the light edge outward, the dark inward. */
+  --color-focus-outer: #e2e8f0;
+  --color-focus-inner: #1a1024;
+
+  --radius-card: 24px;
+  --radius-panel: 28px;
+  --radius-pill: 9999px;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: ui-serif, Georgia, "Times New Roman", serif;
+
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+:root {
+  --motion-duration: 180ms;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-on-surface);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /*
+    A single light ring measures below 3:1 on a Primary fill, so the indicator
+    keeps both edges: dark against the component, light against the surface.
+  */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--color-focus-inner),
+      0 0 0 4px var(--color-focus-outer);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

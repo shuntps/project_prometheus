@@ -1,0 +1,131 @@
+name: Web CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths: &web-paths
+      - "apps/web/**"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/web-ci.yml"
+  push:
+    branches: [main]
+    paths: *web-paths
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source:
+    name: Web source
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # The package manager version comes from the workspace manifest.
+      - name: Set up pnpm
+        timeout-minutes: 5
+        run: |
+          corepack enable pnpm
+          pnpm --version
+
+      - name: Install the workspace
+        timeout-minutes: 10
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify formatting
+        timeout-minutes: 5
+        run: pnpm --filter @app/web format
+
+      - name: Lint
+        timeout-minutes: 10
+        run: pnpm --filter @app/web lint
+
+      - name: Check types
+        timeout-minutes: 10
+        run: pnpm --filter @app/web typecheck
+
+      - name: Unit tests
+        timeout-minutes: 5
+        run: pnpm --filter @app/web test:unit
+
+      - name: Policy tests
+        timeout-minutes: 5
+        run: pnpm --filter @app/web test:policy
+
+  browser:
+    name: Web browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # A placeholder public name, asserting no adopted value. No internal API
+    # origin is set, so no rewrite is installed for this run.
+    env:
+      SITE_NAME: Example Platform
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # The package manager version comes from the workspace manifest.
+      - name: Set up pnpm
+        timeout-minutes: 5
+        run: |
+          corepack enable pnpm
+          pnpm --version
+
+      - name: Install the workspace
+        timeout-minutes: 10
+        run: pnpm install --frozen-lockfile
+
+      - name: Install the test browser
+        timeout-minutes: 10
+        run: pnpm --filter @app/web exec playwright install --with-deps chromium
+
+      # The suite builds the application once and drives the standalone output.
+      - name: Browser tests
+        timeout-minutes: 20
+        run: pnpm --filter @app/web test:e2e
+
+  image:
+    name: Web image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # One build of the deployment artefact. Building it once establishes that
+      # it builds; it establishes nothing about reproducibility.
+      - name: Build the image
+        timeout-minutes: 15
+        run: |
+          docker build \
+            -f apps/web/Dockerfile \
+            --build-arg SITE_NAME='Example Platform' \
+            -t web:ci .

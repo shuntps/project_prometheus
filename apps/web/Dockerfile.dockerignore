@@ -1,0 +1,17 @@
+# Everything is withheld from the context, then only what this build needs is
+# added back. Private material is never sent to the builder.
+*
+
+!package.json
+!pnpm-workspace.yaml
+!pnpm-lock.yaml
+!apps/web
+
+apps/web/node_modules
+apps/web/.next
+apps/web/test-results
+apps/web/playwright-report
+
+# No environment file reaches the builder; the versioned template is needed
+# neither to build nor to run.
+apps/web/.env*

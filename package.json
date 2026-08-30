@@ -1,0 +1,13 @@
+{
+  "name": "project-prometheus",
+  "private": true,
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22.11.0"
+  },
+  "scripts": {
+    "web": "pnpm --filter @app/web",
+    "web:build": "pnpm --filter @app/web build",
+    "web:test": "pnpm --filter @app/web test"
+  }
+}
