@@ -59,7 +59,7 @@ func TestAuthorisationSeparatesForbiddenFromUnauthenticated(t *testing.T) {
 	}}
 
 	_, outcome, err := newSessions(t, &repository{resolved: granted, resolveFound: true}).
-		Authorise(context.Background(), aToken(t), iam.PermissionOwnSessionRead)
+		Authorise(context.Background(), aToken(t), iam.PermissionOwnSessionRenew)
 	if err != nil || outcome != auth.OutcomeSucceeded {
 		t.Fatalf("a granted permission produced (%d, %v)", outcome, err)
 	}
@@ -74,7 +74,7 @@ func TestAuthorisationSeparatesForbiddenFromUnauthenticated(t *testing.T) {
 	}
 
 	_, outcome, err = newSessions(t, &repository{resolveFound: false}).
-		Authorise(context.Background(), aToken(t), iam.PermissionOwnSessionRead)
+		Authorise(context.Background(), aToken(t), iam.PermissionOwnSessionRenew)
 	if err != nil {
 		t.Fatalf("unexpected failure: %v", err)
 	}

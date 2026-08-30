@@ -49,6 +49,31 @@ func viewOf(sess session.Session, principal iam.Principal) sessionView {
 	}
 }
 
+// requireSession resolves the caller's own session and nothing beyond it. A live
+// session is sufficient to read its metadata; no role participates in the read.
+func (s *authSurface) requireSession(next func(fiber.Ctx, auth.Resolved) error) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		token, held := sessionTokenFromRequest(c)
+		if !held {
+			return fiber.NewError(http.StatusUnauthorized, authenticationRequired)
+		}
+		authenticated, outcome, err := s.sessions.Authenticate(c.Context(), token)
+		if err != nil {
+			// A store that failed says nothing about the caller, so it is never
+			// reported as an absent session.
+			return fiber.NewError(http.StatusInternalServerError)
+		}
+		switch outcome {
+		case auth.OutcomeSucceeded:
+			return next(c, authenticated.Resolved)
+		case auth.OutcomeUnauthenticated:
+			return fiber.NewError(http.StatusUnauthorized, authenticationRequired)
+		default:
+			return fiber.NewError(http.StatusInternalServerError)
+		}
+	}
+}
+
 // requirePermission resolves the caller from the cookie alone, then puts that
 // principal through the domain function. No header contributes to any of it.
 func (s *authSurface) requirePermission(permission iam.Permission, next func(fiber.Ctx, auth.Resolved) error) fiber.Handler {

@@ -73,7 +73,7 @@ func (s *authSurface) register(app *fiber.App) {
 
 	app.Post(sessionPath, s.signIn)
 	app.Delete(sessionPath, s.signOut)
-	app.Get(sessionPath, s.requirePermission(iam.PermissionOwnSessionRead, s.currentSession))
+	app.Get(sessionPath, s.requireSession(s.currentSession))
 	app.Get(broadcastAccessPath, s.requirePermission(iam.PermissionStreamBroadcast, grantedHandler))
 	app.Post(activityPath, s.recordActivity)
 }
