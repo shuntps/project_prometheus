@@ -30,11 +30,11 @@ func TestActivityAndRotationDoNotDeadlockInEitherOrder(t *testing.T) {
 			_, err := store.RecordActivity(ctx, sess.ID, now.Add(10*time.Minute), lifetimes())
 			activity <- err
 		}()
-		activityPID := waitForLockWait(t, pool, activityLockFragment)
+		activityPID := waitForLockWait(t, activityLockFragment)
 
 		rotation := make(chan error, 1)
 		go func() { rotation <- store.Rotate(ctx, sess.ID, successor, now.Add(10*time.Minute)) }()
-		rotationPID := waitForLockWait(t, pool, authorityFragment)
+		rotationPID := waitForLockWait(t, authorityFragment)
 		if activityPID == rotationPID {
 			t.Fatalf("both operations were observed on one backend %d", activityPID)
 		}
@@ -69,14 +69,14 @@ func TestActivityAndRotationDoNotDeadlockInEitherOrder(t *testing.T) {
 
 		rotation := make(chan error, 1)
 		go func() { rotation <- store.Rotate(ctx, sess.ID, successor, now.Add(10*time.Minute)) }()
-		rotationPID := waitForLockWait(t, pool, rotationLockFragment)
+		rotationPID := waitForLockWait(t, rotationLockFragment)
 
 		activity := make(chan error, 1)
 		go func() {
 			_, err := store.RecordActivity(ctx, sess.ID, now.Add(10*time.Minute), lifetimes())
 			activity <- err
 		}()
-		activityPID := waitForLockWait(t, pool, authorityFragment)
+		activityPID := waitForLockWait(t, authorityFragment)
 		if activityPID == rotationPID {
 			t.Fatalf("both operations were observed on one backend %d", activityPID)
 		}

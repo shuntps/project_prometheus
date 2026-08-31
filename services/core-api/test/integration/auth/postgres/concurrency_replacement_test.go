@@ -30,14 +30,14 @@ func TestActivityAndReplacementDoNotDeadlockInEitherOrder(t *testing.T) {
 			_, err := store.RecordActivity(ctx, sess.ID, now.Add(10*time.Minute), lifetimes())
 			activity <- err
 		}()
-		activityPID := waitForLockWait(t, pool, activityLockFragment)
+		activityPID := waitForLockWait(t, activityLockFragment)
 
 		replacement := make(chan error, 1)
 		go func() {
 			_, err := store.ReplaceSession(ctx, &sess.ID, successor, now.Add(10*time.Minute))
 			replacement <- err
 		}()
-		replacementPID := waitForLockWait(t, pool, authorityFragment)
+		replacementPID := waitForLockWait(t, authorityFragment)
 		if activityPID == replacementPID {
 			t.Fatalf("both operations were observed on one backend %d", activityPID)
 		}
@@ -75,14 +75,14 @@ func TestActivityAndReplacementDoNotDeadlockInEitherOrder(t *testing.T) {
 			_, err := store.ReplaceSession(ctx, &sess.ID, successor, now.Add(10*time.Minute))
 			replacement <- err
 		}()
-		replacementPID := waitForLockWait(t, pool, revocationFragment)
+		replacementPID := waitForLockWait(t, revocationFragment)
 
 		activity := make(chan error, 1)
 		go func() {
 			_, err := store.RecordActivity(ctx, sess.ID, now.Add(10*time.Minute), lifetimes())
 			activity <- err
 		}()
-		activityPID := waitForLockWait(t, pool, authorityFragment)
+		activityPID := waitForLockWait(t, authorityFragment)
 		if activityPID == replacementPID {
 			t.Fatalf("both operations were observed on one backend %d", activityPID)
 		}

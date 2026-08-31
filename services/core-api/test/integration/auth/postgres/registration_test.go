@@ -311,7 +311,7 @@ func TestConcurrentRegistrationsOnAnUnknownAddressProduceOneAccount(t *testing.T
 		answers <- answer{collided: collided, err: err}
 	}()
 
-	waitForLockWait(t, pool, "account_email_identities")
+	waitForLockWait(t, "account_email_identities")
 	if err := holder.Commit(context.Background()); err != nil {
 		t.Fatalf("committing the winning transaction failed: %v", err)
 	}

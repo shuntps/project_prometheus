@@ -265,7 +265,13 @@ func TestConcurrentVerificationsActivateOnce(t *testing.T) {
 	}
 
 	const callers = 4
-	activations := make(chan bool, callers)
+	// The outcome carries its own error: turning one into a plain false would
+	// make an unexpected failure indistinguishable from a caller that lost.
+	type outcome struct {
+		activated bool
+		err       error
+	}
+	outcomes := make(chan outcome, callers)
 	var done sync.WaitGroup
 	for i := 0; i < callers; i++ {
 		done.Add(1)
@@ -274,26 +280,28 @@ func TestConcurrentVerificationsActivateOnce(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			activated, err := store.ConsumeVerification(ctx, token.Fingerprint(), now.Add(time.Minute))
-			if err != nil && !errors.Is(err, authstore.ErrNotFound) {
-				activations <- false
-				return
-			}
-			activations <- activated
+			outcomes <- outcome{activated: activated, err: err}
 		}()
 	}
 
-	// The activation is observed blocked on the account row before anything is
-	// released, which is what establishes that it takes that lock at all.
-	waitForLockWait(t, pool, "FOR NO KEY UPDATE")
+	// All four are observed blocked on the account row before anything is
+	// released, which is what establishes that every one of them takes that lock.
+	waiting := waitForLockWaiters(t, "FOR NO KEY UPDATE", callers)
+	t.Logf("backends waiting on the account row: %v", waiting)
 	if err := holder.Commit(context.Background()); err != nil {
 		t.Fatalf("releasing the account failed: %v", err)
 	}
 	done.Wait()
-	close(activations)
+	close(outcomes)
 
 	activated := 0
-	for one := range activations {
-		if one {
+	for one := range outcomes {
+		// One caller activates; the others find the challenge consumed under their
+		// own locks and write nothing. Nothing else is an expected outcome here.
+		if one.err != nil {
+			t.Fatalf("a caller failed instead of losing the race: %v", one.err)
+		}
+		if one.activated {
 			activated++
 		}
 	}

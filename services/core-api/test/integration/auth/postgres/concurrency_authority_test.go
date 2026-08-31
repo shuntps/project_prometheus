@@ -129,7 +129,7 @@ func TestActivityWaitsForAnUncommittedSuspension(t *testing.T) {
 	}()
 
 	// The server itself reports the renewal blocked on the lock.
-	if pid := waitForLockWait(t, pool, "kind, status FROM accounts"); pid == 0 {
+	if pid := waitForLockWait(t, "kind, status FROM accounts"); pid == 0 {
 		t.Fatal("no waiting backend was identified")
 	}
 	select {
@@ -211,7 +211,7 @@ func TestActivityRefusesASessionReassignedUnderTheLock(t *testing.T) {
 		_, err := store.RecordActivity(ctx, sess.ID, now.Add(10*time.Minute), lifetimes())
 		done <- err
 	}()
-	if pid := waitForLockWait(t, pool, "kind, status FROM accounts"); pid == 0 {
+	if pid := waitForLockWait(t, "kind, status FROM accounts"); pid == 0 {
 		t.Fatal("the renewal never waited on account A")
 	}
 
@@ -256,7 +256,7 @@ func TestActivityWaitsForAnUncommittedRoleWithdrawal(t *testing.T) {
 		_, err := store.RecordActivity(ctx, sess.ID, now.Add(10*time.Minute), lifetimes())
 		done <- err
 	}()
-	if pid := waitForLockWait(t, pool, "account_role_grants"); pid == 0 {
+	if pid := waitForLockWait(t, "account_role_grants"); pid == 0 {
 		t.Fatal("the renewal never waited on the grant rows")
 	}
 	select {
@@ -303,7 +303,7 @@ func TestARoleWithdrawalWaitsForAnActivityInFlight(t *testing.T) {
 		_, err := store.RecordActivity(ctx, sess.ID, now.Add(10*time.Minute), lifetimes())
 		renewal <- err
 	}()
-	if pid := waitForLockWait(t, pool, "account_sessions"); pid == 0 {
+	if pid := waitForLockWait(t, "account_sessions"); pid == 0 {
 		t.Fatal("the renewal never reached the session lock")
 	}
 
@@ -312,7 +312,7 @@ func TestARoleWithdrawalWaitsForAnActivityInFlight(t *testing.T) {
 		_, err := pool.Exec(ctx, `DELETE FROM account_role_grants WHERE account_id = $1`, account.ID.String())
 		withdrawal <- err
 	}()
-	if pid := waitForLockWait(t, pool, "account_role_grants"); pid == 0 {
+	if pid := waitForLockWait(t, "account_role_grants"); pid == 0 {
 		t.Fatal("the withdrawal never waited on the grants the renewal holds")
 	}
 

@@ -37,13 +37,13 @@ func TestActivityAndRevocationCannotDeadlockOverTheSameAccount(t *testing.T) {
 		_, err := store.RecordActivity(ctx, sess.ID, now.Add(10*time.Minute), lifetimes())
 		activity <- err
 	}()
-	activityPID := waitForLockWait(t, pool, authorityFragment)
+	activityPID := waitForLockWait(t, authorityFragment)
 
 	revocation := make(chan error, 1)
 	go func() { revocation <- store.RevokeSession(ctx, sess.ID, now.Add(10*time.Minute)) }()
 	// Waiting on the event insert places the revocation past its own update, in
 	// the same transaction, and on the account it reaches through a foreign key.
-	revocationPID := waitForLockWait(t, pool, eventInsertFragment)
+	revocationPID := waitForLockWait(t, eventInsertFragment)
 	if revocationPID == activityPID {
 		t.Fatalf("both operations were observed on one backend %d", activityPID)
 	}
@@ -93,7 +93,7 @@ func TestActivityAndAccountWideRevocationDoNotDeadlock(t *testing.T) {
 			_, err := store.RecordActivity(ctx, first.ID, now.Add(10*time.Minute), lifetimes())
 			activity <- err
 		}()
-		activityPID := waitForLockWait(t, pool, authorityFragment)
+		activityPID := waitForLockWait(t, authorityFragment)
 
 		revocation := make(chan accountWideOutcome, 1)
 		go func() {
@@ -101,7 +101,7 @@ func TestActivityAndAccountWideRevocationDoNotDeadlock(t *testing.T) {
 			revocation <- accountWideOutcome{affected, err}
 		}()
 		// Past its own update of both rows, waiting on the account its event references.
-		revocationPID := waitForLockWait(t, pool, eventInsertFragment)
+		revocationPID := waitForLockWait(t, eventInsertFragment)
 		if revocationPID == activityPID {
 			t.Fatalf("both operations were observed on one backend %d", activityPID)
 		}
@@ -151,7 +151,7 @@ func TestActivityAndAccountWideRevocationDoNotDeadlock(t *testing.T) {
 			_, err := store.RecordActivity(ctx, first.ID, now.Add(10*time.Minute), lifetimes())
 			activity <- err
 		}()
-		activityPID := waitForLockWait(t, pool, activityLockFragment)
+		activityPID := waitForLockWait(t, activityLockFragment)
 
 		revocation := make(chan accountWideOutcome, 1)
 		go func() {
@@ -159,7 +159,7 @@ func TestActivityAndAccountWideRevocationDoNotDeadlock(t *testing.T) {
 			revocation <- accountWideOutcome{affected, err}
 		}()
 		// It cannot pass the renewal: the row it must update is the one being held.
-		revocationPID := waitForLockWait(t, pool, accountWideFragment)
+		revocationPID := waitForLockWait(t, accountWideFragment)
 		if revocationPID == activityPID {
 			t.Fatalf("both operations were observed on one backend %d", activityPID)
 		}
