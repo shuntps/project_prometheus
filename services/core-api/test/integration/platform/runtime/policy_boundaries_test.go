@@ -49,6 +49,9 @@ func behindProxyEnv(header string) map[string]string {
 		"AUTH_RATE_LIMIT_IDENTITY_ATTEMPTS": "5",
 		"AUTH_RATE_LIMIT_WINDOW":            "15m",
 		"AUTH_RATE_LIMIT_CAPACITY":          "65536",
+		// Public registration is off in this fixture: the network policy is what is
+		// being judged, and no transport carries a verification message here.
+		"EMAIL_TRANSPORT": string(config.EmailTransportNone),
 	}
 }
 

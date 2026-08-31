@@ -180,9 +180,13 @@ func TestEveryAuthenticationRouteIsBounded(t *testing.T) {
 			registered = append(registered, route)
 		}
 	}
-	if len(registered) != 5 {
-		t.Fatalf("the router holds %d authentication routes, want the 5 the surface registers: %v", len(registered), registered)
+	// The count is read from the router rather than restated, so a route added
+	// without a bound is caught by the loop below; the floor only guards against
+	// an empty read passing as full coverage.
+	if len(registered) < 5 {
+		t.Fatalf("the router holds %d authentication routes, want at least the five the surface always registers", len(registered))
 	}
+	t.Logf("bounding %d registered authentication routes", len(registered))
 	for _, route := range registered {
 		res := s.send(t, request{
 			method: route.Method, target: route.Path, raw: oversized,

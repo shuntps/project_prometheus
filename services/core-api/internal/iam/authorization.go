@@ -21,6 +21,8 @@ const (
 // permission on one never reads as a permission on another.
 type Permission string
 
+// PermissionStreamWatch is carried by no role. Watching adult content requires an
+// age-assurance model that does not exist, and a verified address is not one.
 const (
 	PermissionOwnSessionRenew    Permission = "own_session:renew"
 	PermissionStreamWatch        Permission = "stream:watch"
@@ -44,11 +46,11 @@ type roleDefinition struct {
 var roleDefinitions = map[Role]roleDefinition{
 	RoleViewer: {
 		surface: SurfacePublic, kinds: []Kind{KindViewer, KindCreator},
-		permissions: []Permission{PermissionOwnSessionRenew, PermissionStreamWatch},
+		permissions: []Permission{PermissionOwnSessionRenew},
 	},
 	RoleCreator: {
 		surface: SurfacePublic, kinds: []Kind{KindCreator},
-		permissions: []Permission{PermissionOwnSessionRenew, PermissionStreamWatch, PermissionStreamBroadcast},
+		permissions: []Permission{PermissionOwnSessionRenew, PermissionStreamBroadcast},
 	},
 	RoleOperatorSupport: {
 		surface: SurfaceOperator, kinds: []Kind{KindOperator},

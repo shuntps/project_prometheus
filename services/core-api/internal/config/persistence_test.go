@@ -37,6 +37,9 @@ func storeEnv(env string, extra map[string]string) map[string]string {
 		"AUTH_RATE_LIMIT_IDENTITY_ATTEMPTS": "5",
 		"AUTH_RATE_LIMIT_WINDOW":            "15m",
 		"AUTH_RATE_LIMIT_CAPACITY":          "65536",
+		// Public registration is off in this fixture: no transport carries a
+		// verification message, so the surface is not mounted at all.
+		"EMAIL_TRANSPORT": string(config.EmailTransportNone),
 	}
 	for k, v := range extra {
 		if v == "" {

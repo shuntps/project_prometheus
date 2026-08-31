@@ -127,7 +127,7 @@ func TestGrantsAreReadAgainOnEveryResolution(t *testing.T) {
 	if err := iam.Authorize(after.Principal, iam.PermissionStreamBroadcast); !errors.Is(err, iam.ErrDenied) {
 		t.Fatal("the removed grant is still carried by the live session")
 	}
-	if err := iam.Authorize(after.Principal, iam.PermissionStreamWatch); err != nil {
+	if err := iam.Authorize(after.Principal, iam.PermissionOwnSessionRenew); err != nil {
 		t.Errorf("the remaining grant was lost: %v", err)
 	}
 }
@@ -238,7 +238,7 @@ func TestASurfaceIsAlwaysBoundToTheAccountKindAtEveryBoundary(t *testing.T) {
 	if err := iam.Authorize(resolved.Principal, iam.PermissionPayoutRead); err != nil {
 		t.Errorf("an operator was refused its own permission: %v", err)
 	}
-	if err := iam.Authorize(resolved.Principal, iam.PermissionStreamWatch); !errors.Is(err, iam.ErrDenied) {
+	if err := iam.Authorize(resolved.Principal, iam.PermissionStreamBroadcast); !errors.Is(err, iam.ErrDenied) {
 		t.Error("an operator session carried a public permission")
 	}
 

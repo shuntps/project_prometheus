@@ -32,6 +32,7 @@ type Config struct {
 	DatabaseURL     persistence.DSN
 	Database        persistence.Settings
 	Auth            AuthSettings
+	Registration    RegistrationSettings
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	IdleTimeout     time.Duration
@@ -117,6 +118,10 @@ func Load(lookup Lookup) (Config, error) {
 	authSettings, authProblems := loadAuth(lookup, cfg.Environment)
 	cfg.Auth = authSettings
 	problems = append(problems, authProblems...)
+
+	registration, registrationProblems := loadRegistration(lookup, cfg.Environment)
+	cfg.Registration = registration
+	problems = append(problems, registrationProblems...)
 
 	if len(problems) > 0 {
 		return Config{}, fmt.Errorf("%w: %s", ErrInvalid, strings.Join(problems, "; "))
