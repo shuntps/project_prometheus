@@ -23,12 +23,9 @@ import (
 // are fictitious, live only in the throwaway container and are never production.
 const ()
 
-// subjectPoolConnections is what the store's pool holds, stated rather than
-// inherited: the driver defaults to max(4, NumCPU), which would make a proof of
-// concurrency depend on the machine running it.
-//
-// Five is exactly the largest simultaneous demand in this package: one holding
-// transaction and the four concurrent callers it blocks.
+// subjectPoolConnections is stated rather than inherited: the driver defaults to
+// max(4, NumCPU), which would make a proof of concurrency depend on the machine.
+// Five is the largest demand here: one holding transaction and four callers.
 const subjectPoolConnections = 5
 
 // lockWaitDeadline bounds one observation. It is shorter than the bound the
@@ -61,27 +58,27 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// observer opens the pool that reads server activity, once for the package. It
-// is separate from the pool under observation: an observer sharing the callers'
-// connections can be starved by the very callers it is meant to see waiting, and
-// its silence then looks exactly like nothing being blocked.
-//
-// One connection is enough because no test here runs in parallel.
+// observer opens the pool that reads server activity, once for the package. It is
+// separate from the pool observed: an observer sharing the callers' connections
+// can be starved by them, and its silence then looks like nothing being blocked.
 func observer(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	observerOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(t.Context(), lockWaitDeadline)
+		defer cancel()
+
 		settings, err := pgxpool.ParseConfig(storeDSN)
 		if err != nil {
 			observerErr = fmt.Errorf("parsing the connection string: %w", err)
 			return
 		}
 		settings.MaxConns = 1
-		pool, err := pgxpool.NewWithConfig(context.Background(), settings)
+		pool, err := pgxpool.NewWithConfig(ctx, settings)
 		if err != nil {
 			observerErr = fmt.Errorf("opening the observation pool: %w", err)
 			return
 		}
-		if err := pool.Ping(context.Background()); err != nil {
+		if err := pool.Ping(ctx); err != nil {
 			pool.Close()
 			observerErr = fmt.Errorf("reaching the server for observation: %w", err)
 			return
@@ -258,12 +255,9 @@ func readLedger(t *testing.T, pool *pgxpool.Pool) ledger {
 	return l
 }
 
-// waitForLockWaiters blocks until PostgreSQL reports exactly want backends
-// waiting on a lock for a statement matching the fragment. An elapsed delay would
-// prove nothing about being blocked.
-//
-// Each probe builds its own set: the callers must be waiting together, and a set
-// carried across probes would hide one of them leaving early.
+// waitForLockWaiters blocks until PostgreSQL reports exactly want backends waiting
+// on a lock for a statement matching the fragment; an elapsed delay would prove
+// nothing. Each probe builds its own set, so none can leave early unnoticed.
 func waitForLockWaiters(t *testing.T, fragment string, want int) []int {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), lockWaitDeadline)
