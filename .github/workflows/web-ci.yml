@@ -110,6 +110,13 @@ jobs:
         timeout-minutes: 20
         run: pnpm --filter @app/web test:e2e
 
+      # One property exists only in a development build, where React runs an
+      # effect twice on mount. It runs after the build above, not beside it:
+      # both write to the same .next directory.
+      - name: Development-build browser test
+        timeout-minutes: 10
+        run: pnpm --filter @app/web test:e2e:dev
+
   image:
     name: Web image
     runs-on: ubuntu-latest

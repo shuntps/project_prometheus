@@ -1,6 +1,9 @@
 /*
   Runs inside the web container, where Node is already present. Every assertion
-  is exact: a wrong status or a missing field fails the check.
+  is exact: a wrong status or a missing field fails the check. This is Node
+  fetching documents and driving the API; it runs none of the pages' own
+  JavaScript, so nothing here says how a browser behaves. The browser suites
+  under apps/web/tests do that, against stand-ins rather than this stack.
 */
 const web = "http://127.0.0.1:3000";
 const api = "http://core-api:8080";
@@ -135,9 +138,10 @@ if (rewritten.error) {
 }
 
 /*
-  The registration journey end to end, through the Next.js rewrite. The
-  /verify-email page does not exist, so the token is read from the fragment here
-  the way that page will have to.
+  The registration journey end to end, through the Next.js rewrite. The token is
+  read from the fragment the way the page does; a browser does not send one, so
+  the server that serves /verify-email never receives it. Consuming it then puts
+  it in a request body, deliberately, exactly as the page does.
 */
 const registrant = `dev-check-${Date.now()}@example.invalid`;
 const secret = "dev-check-correct-horse-battery-staple";
@@ -300,6 +304,33 @@ check(
   !watching.error && watching.response.status === 403,
   `status ${watching.response?.status}`,
 );
+
+/*
+  Both account documents are served. That they are reachable and carry HTML is
+  what a fetch establishes; what their scripts do is not observed here.
+*/
+for (const path of ["/register", "/verify-email"]) {
+  const document = await fetched(`${web}${path}`);
+  if (document.error) {
+    check(`web ${path} reachable`, false, document.error);
+    continue;
+  }
+  check(
+    `web ${path} is 200`,
+    document.response.status === 200,
+    `status ${document.response.status}`,
+  );
+  check(
+    `web ${path} serves html`,
+    (document.response.headers.get("content-type") ?? "").includes("text/html"),
+    `content-type ${document.response.headers.get("content-type")}`,
+  );
+  check(
+    `web ${path} ships no token`,
+    token === null || !document.body.includes(token),
+    "the served document carries the verification token",
+  );
+}
 
 if (failures.length > 0) {
   console.error(`${failures.length} check(s) failed of ${passed + failures.length}`);

@@ -1,9 +1,9 @@
 import "client-only";
 
+import { retryAfterDelayMs } from "@/protocol/http/retry-after";
 import {
   classifyResolution,
   classifySignIn,
-  retryAfterDelayMs,
   type SessionState,
   type SignInOutcome,
 } from "./session-contract";

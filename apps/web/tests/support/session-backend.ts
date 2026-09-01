@@ -1,4 +1,6 @@
-import type { Page, Request, Route } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
+
+import { record, type Recorded } from "./recording";
 
 /*
   A stateful stand-in for the Go API, installed before navigation. It exercises
@@ -10,13 +12,6 @@ export const activityPath = "**/api/v1/auth/session/activity";
 export const csrfToken = "fixture-csrf-token";
 
 export type FakeSession = { roles: string[] };
-
-export type Recorded = {
-  method: string;
-  url: string;
-  headers: Record<string, string>;
-  body: string;
-};
 
 export type Held = { release: (session: FakeSession | null) => Promise<void> };
 
@@ -47,15 +42,6 @@ function viewOf(session: FakeSession) {
   };
 }
 
-function record(backend: SessionBackend, request: Request): void {
-  backend.requests.push({
-    method: request.method(),
-    url: request.url(),
-    headers: request.headers(),
-    body: request.postData() ?? "",
-  });
-}
-
 export async function installSessionBackend(
   page: Page,
   initial: Partial<SessionBackend> = {},
@@ -77,7 +63,7 @@ export async function installSessionBackend(
   };
 
   await page.route(activityPath, async (route: Route) => {
-    record(backend, route.request());
+    await record(backend.requests, route.request());
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (backend.activityRetryAfter !== null) {
       headers["retry-after"] = backend.activityRetryAfter;
@@ -101,7 +87,7 @@ export async function installSessionBackend(
 
   await page.route(sessionPath, async (route: Route) => {
     const request = route.request();
-    record(backend, request);
+    await record(backend.requests, request);
     const headers: Record<string, string> = { "content-type": "application/json" };
 
     if (request.method() === "POST") {
@@ -193,8 +179,4 @@ export async function installSessionBackend(
   });
 
   return backend;
-}
-
-export function requestsTo(backend: SessionBackend, method: string, suffix: string): Recorded[] {
-  return backend.requests.filter((r) => r.method === method && r.url.endsWith(suffix));
 }

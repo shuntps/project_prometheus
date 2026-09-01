@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type SubmitEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { signIn } from "../browser-api";
@@ -80,7 +80,7 @@ export function SignInForm() {
     [router],
   );
 
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
+  function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (blocked) {
       return;

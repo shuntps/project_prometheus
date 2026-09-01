@@ -61,13 +61,17 @@ test("every in-page navigation link points at a section that exists", async ({ p
   }
 });
 
-test("the unavailable action is a disabled button, not a dead link", async ({ page }) => {
-  const action = page.getByRole("button", { name: "Create an account" });
-  await expect(action).toBeDisabled();
+/* The action is real now, and says what an account is worth at this stage. */
+test("the primary action leads to the registration screen and is qualified", async ({ page }) => {
+  const action = page.getByRole("link", { name: "Create an account" });
+  await expect(action).toHaveAttribute("href", "/register");
 
   const described = await action.getAttribute("aria-describedby");
   expect(described).toBeTruthy();
   await expect(page.locator(`#${described}`)).toBeVisible();
+
+  await action.click();
+  await expect(page).toHaveURL(/\/register$/);
 });
 
 test("the page needs no request to another host", async ({ page }) => {
@@ -99,16 +103,16 @@ test("the automated accessibility pass returns no violation at all", async ({ pa
 /* The utility resolves the custom property; the computed value is what ships. */
 test("the motion duration resolves to the configured value", async ({ page }) => {
   const measured = await page.evaluate(() => {
-    const link = document.querySelector("header nav a");
-    const button = document.querySelector("main button");
+    const navigation = document.querySelector("header nav a");
+    const action = document.querySelector("main a");
     return {
-      link: link ? getComputedStyle(link).transitionDuration : null,
-      button: button ? getComputedStyle(button).transitionDuration : null,
+      navigation: navigation ? getComputedStyle(navigation).transitionDuration : null,
+      action: action ? getComputedStyle(action).transitionDuration : null,
     };
   });
 
-  expect(measured.link).toBe("0.18s");
-  expect(measured.button).toBe("0.18s");
+  expect(measured.navigation).toBe("0.18s");
+  expect(measured.action).toBe("0.18s");
 });
 
 test("a reader who asks for less motion gets it", async ({ page }) => {

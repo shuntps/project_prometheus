@@ -1,3 +1,5 @@
+import { maxRetryAfterMs, retryAfterDelayMs } from "@/protocol/http/retry-after";
+
 /*
   The API is the sole authority. This module only decodes what it answered and
   classifies the outcome; it decides nothing about the caller.
@@ -17,9 +19,6 @@ export type SessionState =
   | { status: "authenticated"; session: SessionView }
   | { status: "rate-limited"; retryAfterMs: number }
   | { status: "unavailable" };
-
-/* A ceiling of this side's own, so a server value cannot park the interface. */
-export const maxRetryAfterMs = 60_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -57,26 +56,6 @@ export function decodeSessionView(payload: unknown): SessionView | null {
     return null;
   }
   return { csrfToken, accountId, kind, surface, roles, expiresAt };
-}
-
-/* RFC 9110 allows delay-seconds or an HTTP-date. This reads delay-seconds only,
-   because that is what the API sends; an HTTP-date is refused, not parsed. */
-const delaySeconds = /^[0-9]+$/;
-
-export function retryAfterDelayMs(header: string | null): number | null {
-  if (header === null) {
-    return null;
-  }
-  /* HTTP whitespace is SP and HTAB alone; nothing else is trimmed. */
-  const value = header.replace(/^[ \t]+|[ \t]+$/g, "");
-  if (!delaySeconds.test(value)) {
-    return null;
-  }
-  const seconds = Number(value);
-  if (seconds <= 0) {
-    return null;
-  }
-  return Math.min(seconds * 1000, maxRetryAfterMs);
 }
 
 export type SignInOutcome =

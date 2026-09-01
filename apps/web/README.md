@@ -22,9 +22,14 @@ src/
     landing/
       components/   components belonging to this surface alone
       content.ts    every word this surface displays
+    registration/   creating an account, confirming its address, asking again
+    session/        signing in, signing out and renewing a session
+  protocol/
+    http/       what an HTTP answer means, shared by every surface
   styles/       the theme, as CSS custom properties
 tests/
   e2e/          Playwright, a browser against the production output
+  e2e-dev/      Playwright, the one property that needs a development build
   policy/       Vitest, invariants of the sources and of this structure
   support/      fixtures shared by the suites
   unit/         Vitest, functions with no framework around them
@@ -34,22 +39,26 @@ tests/
 
 ```
 app  →  features  →  components/ui  →  config
+                 ↘  protocol
 ```
 
-- `app` may import `features`, `components/ui` and `config`.
-- a feature may import `components/ui` and `config`.
+- `app` may import `features`, `components/ui`, `protocol` and `config`.
+- a feature may import `components/ui`, `protocol` and `config`.
 - `components/ui` may import neither `features` nor `app`, and holds no domain logic.
 - `config` imports no user interface.
+- `protocol` is a leaf: it imports nothing at all, and knows no feature, route or framework.
 
-ESLint enforces all three restrictions; a violation fails `lint`, not review.
+ESLint enforces all four restrictions; a violation fails `lint`, not review.
 
-A new domain goes in `features/<domain>`, not into `app` or `components`.
+A new domain goes in `features/<domain>`, not into `app` or `components`. A feature
+never imports another feature: `registration` and `session` are two domains, and
+what they genuinely share is a protocol detail rather than a shared feature.
 
 `components/ui` holds design-system primitives, and the criterion is semantic
 rather than a headcount: no knowledge of a domain or of a feature, a generic and
-stable visual API, and a shape the design system already defines. Today
-`landing` is their only consumer. A component carrying domain meaning stays in
-its feature; it is never moved up on speculation.
+stable visual API, and a shape the design system already defines. A component
+carrying domain meaning stays in its feature; it is never moved up on
+speculation.
 
 There are no `services`, `controllers`, `modules`, `utils` or `lib` directories,
 and no barrel file re-exporting the application.
@@ -59,21 +68,29 @@ and no barrel file re-exporting the application.
 Run from this directory, or from the repository root through
 `pnpm --filter @app/web <script>`.
 
-| Purpose            | Command                                      |
-| ------------------ | -------------------------------------------- |
-| Development server | `pnpm dev`                                   |
-| Production build   | `pnpm build`                                 |
-| Serve a build      | `pnpm start`                                 |
-| Formatting         | `pnpm format` (`pnpm format:write` to apply) |
-| Lint               | `pnpm lint`                                  |
-| Types              | `pnpm typecheck`                             |
-| Unit tests         | `pnpm test:unit`                             |
-| Policy tests       | `pnpm test:policy`                           |
-| Browser tests      | `pnpm test:e2e`                              |
-| Every suite        | `pnpm test`                                  |
+| Purpose                | Command                                      |
+| ---------------------- | -------------------------------------------- |
+| Development server     | `pnpm dev`                                   |
+| Production build       | `pnpm build`                                 |
+| Serve a build          | `pnpm start`                                 |
+| Formatting             | `pnpm format` (`pnpm format:write` to apply) |
+| Lint                   | `pnpm lint`                                  |
+| Types                  | `pnpm typecheck`                             |
+| Unit tests             | `pnpm test:unit`                             |
+| Policy tests           | `pnpm test:policy`                           |
+| Browser tests          | `pnpm test:e2e`                              |
+| Development-build test | `pnpm test:e2e:dev`                          |
+| Every suite            | `pnpm test`                                  |
 
 `test:e2e` builds the application once and drives the standalone output, which
-is what the image runs. The other suites start nothing.
+is what the image runs. `test:e2e:dev` drives a development server instead, for
+the one property that only exists there: React runs an effect twice on mount in
+a development build, and the address-confirmation page has to survive that.
+Both write to `.next`, so they run one after the other. The other suites start
+nothing.
+
+Every browser suite serves its own answers to `/api` from inside the page. They
+exercise neither PostgreSQL, nor a real session cookie, nor the Go API.
 
 ## Configuration
 
