@@ -36,8 +36,10 @@ func TestTheWholeMatrixIsDecidedExplicitly(t *testing.T) {
 		iam.RoleOperatorCompliance: iam.SurfaceOperator, iam.RoleOperatorFinance: iam.SurfaceOperator,
 	}
 	roleCarries := map[iam.Role]map[iam.Permission]bool{
-		iam.RoleViewer:             {iam.PermissionOwnSessionRenew: true, iam.PermissionStreamWatch: true},
-		iam.RoleCreator:            {iam.PermissionOwnSessionRenew: true, iam.PermissionStreamWatch: true, iam.PermissionStreamBroadcast: true},
+		// stream:watch appears in no row: watching adult content requires an
+		// age-assurance model that does not exist, and no role may stand in for it.
+		iam.RoleViewer:             {iam.PermissionOwnSessionRenew: true},
+		iam.RoleCreator:            {iam.PermissionOwnSessionRenew: true, iam.PermissionStreamBroadcast: true},
 		iam.RoleOperatorSupport:    {iam.PermissionOwnSessionRenew: true, iam.PermissionSupportTicketRead: true},
 		iam.RoleOperatorModeration: {iam.PermissionOwnSessionRenew: true, iam.PermissionModerationCaseRead: true},
 		iam.RoleOperatorCompliance: {iam.PermissionOwnSessionRenew: true, iam.PermissionComplianceCaseRead: true},

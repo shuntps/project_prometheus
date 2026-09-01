@@ -1,10 +1,8 @@
 package ratelimit
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -29,7 +27,7 @@ type AuthPolicy struct {
 
 // errEntropy is fixed: a caller learns that no limiter was built and nothing
 // about the source that failed.
-var errEntropy = errors.New("authentication rate limit policy: no identity key could be drawn")
+var errEntropy = errors.New("rate limit policy: no counter key could be drawn")
 
 const (
 	MinAuthAttempts = 1
@@ -101,13 +99,7 @@ func newAuthLimiter(policy AuthPolicy, random io.Reader) (*AuthLimiter, error) {
 	}, nil
 }
 
-// counterKey derives a dimension's key. The result is keyed and of fixed length,
-// so it cannot be recomputed from a candidate value outside this process.
-func (l *AuthLimiter) counterKey(value string) string {
-	mac := hmac.New(sha256.New, l.secret)
-	mac.Write([]byte(strings.ToLower(strings.TrimSpace(value))))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-}
+func (l *AuthLimiter) counterKey(value string) string { return counterKey(l.secret, value) }
 
 // Allow charges the client and the identifier together, and charges nothing when
 // either is exhausted, so a refusal cannot delay the other's recovery.

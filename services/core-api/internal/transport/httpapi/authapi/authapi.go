@@ -20,6 +20,9 @@ const (
 	sessionPath         = "/api/v1/auth/session"
 	broadcastAccessPath = "/api/v1/auth/broadcast-access"
 	activityPath        = "/api/v1/auth/session/activity"
+	registrationPath    = "/api/v1/auth/registration"
+	verificationPath    = "/api/v1/auth/email-verification"
+	resendPath          = "/api/v1/auth/email-verification/resend"
 )
 
 // maxRequestBytes bounds this surface's own JSON far below what the server
@@ -35,12 +38,19 @@ type Options struct {
 	SignIn   *auth.SignIn
 	Sessions *auth.Sessions
 	Origin   browser.Origin
+	// Registrations and Verifications mount public registration. They are
+	// supplied together or not at all: nothing may accept a registration when no
+	// transport can carry the message it produces.
+	Registrations *auth.Registrations
+	Verifications *auth.Verifications
 }
 
 type authSurface struct {
-	signIns  *auth.SignIn
-	sessions *auth.Sessions
-	origin   browser.Origin
+	signIns       *auth.SignIn
+	sessions      *auth.Sessions
+	origin        browser.Origin
+	registrations *auth.Registrations
+	verifications *auth.Verifications
 }
 
 func newAuthSurface(opts Options) (*authSurface, error) {
@@ -51,8 +61,13 @@ func newAuthSurface(opts Options) (*authSurface, error) {
 		return nil, errors.New("authentication surface requires the session use cases")
 	case opts.Origin.IsZero():
 		return nil, errors.New("authentication surface requires the public origin")
+	case (opts.Registrations == nil) != (opts.Verifications == nil):
+		return nil, errors.New("public registration requires both its use cases or neither")
 	}
-	return &authSurface{signIns: opts.SignIn, sessions: opts.Sessions, origin: opts.Origin}, nil
+	return &authSurface{
+		signIns: opts.SignIn, sessions: opts.Sessions, origin: opts.Origin,
+		registrations: opts.Registrations, verifications: opts.Verifications,
+	}, nil
 }
 
 // Register mounts the whole surface, refusing a partial one rather than serving
@@ -76,6 +91,14 @@ func (s *authSurface) register(app *fiber.App) {
 	app.Get(sessionPath, s.requireSession(s.currentSession))
 	app.Get(broadcastAccessPath, s.requirePermission(iam.PermissionStreamBroadcast, grantedHandler))
 	app.Post(activityPath, s.recordActivity)
+
+	// Registration exists only where a transport can carry its message, so no
+	// deployment can accept one that nothing would ever deliver.
+	if s.registrations != nil {
+		app.Post(registrationPath, s.registerAccount)
+		app.Post(verificationPath, s.verifyEmail)
+		app.Post(resendPath, s.resendVerification)
+	}
 }
 
 // limitRequestBody refuses an oversized body before anything decodes it, so no

@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
@@ -24,19 +23,72 @@ import (
 // are fictitious, live only in the throwaway container and are never production.
 const ()
 
+// subjectPoolConnections is stated rather than inherited: the driver defaults to
+// max(4, NumCPU), which would make a proof of concurrency depend on the machine.
+// Five is the largest demand here: one holding transaction and four callers.
+const subjectPoolConnections = 5
+
+// lockWaitDeadline bounds one observation. It is shorter than the bound the
+// blocked callers run under, so an observation that cannot be made fails first
+// and says so, rather than being reported as an absence of blocking.
+const lockWaitDeadline = 30 * time.Second
+
+const lockProbeInterval = 20 * time.Millisecond
+
 var (
 	storeOnce sync.Once
 	storeDSN  string
 	storeErr  error
 	storeStop func()
+
+	observerOnce sync.Once
+	observerPool *pgxpool.Pool
+	observerErr  error
 )
 
 func TestMain(m *testing.M) {
 	code := m.Run()
+	// Closed before the server it reads from goes away.
+	if observerPool != nil {
+		observerPool.Close()
+	}
 	if storeStop != nil {
 		storeStop()
 	}
 	os.Exit(code)
+}
+
+// observer opens the pool that reads server activity, once for the package. It is
+// separate from the pool observed: an observer sharing the callers' connections
+// can be starved by them, and its silence then looks like nothing being blocked.
+func observer(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	observerOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(t.Context(), lockWaitDeadline)
+		defer cancel()
+
+		settings, err := pgxpool.ParseConfig(storeDSN)
+		if err != nil {
+			observerErr = fmt.Errorf("parsing the connection string: %w", err)
+			return
+		}
+		settings.MaxConns = 1
+		pool, err := pgxpool.NewWithConfig(ctx, settings)
+		if err != nil {
+			observerErr = fmt.Errorf("opening the observation pool: %w", err)
+			return
+		}
+		if err := pool.Ping(ctx); err != nil {
+			pool.Close()
+			observerErr = fmt.Errorf("reaching the server for observation: %w", err)
+			return
+		}
+		observerPool = pool
+	})
+	if observerErr != nil {
+		t.Fatalf("the observation pool is unusable: %v", observerErr)
+	}
+	return observerPool
 }
 
 func startPostgres() {
@@ -61,7 +113,12 @@ func freshStore(t *testing.T) (*authstore.Store, *pgxpool.Pool) {
 		t.Fatalf("starting PostgreSQL failed: %v", storeErr)
 	}
 
-	pool, err := pgxpool.New(context.Background(), storeDSN)
+	settings, err := pgxpool.ParseConfig(storeDSN)
+	if err != nil {
+		t.Fatalf("parsing the connection string failed: %v", err)
+	}
+	settings.MaxConns = subjectPoolConnections
+	pool, err := pgxpool.NewWithConfig(context.Background(), settings)
 	if err != nil {
 		t.Fatalf("opening the pool failed: %v", err)
 	}
@@ -198,27 +255,73 @@ func readLedger(t *testing.T, pool *pgxpool.Pool) ledger {
 	return l
 }
 
-// waitForLockWait blocks until PostgreSQL reports a backend waiting on a lock for
-// the statement given. An elapsed delay would prove nothing about being blocked.
-func waitForLockWait(t *testing.T, pool *pgxpool.Pool, fragment string) int {
+// waitForLockWaiters blocks until PostgreSQL reports exactly want backends waiting
+// on a lock for a statement matching the fragment; an elapsed delay would prove
+// nothing. Each probe builds its own set, so none can leave early unnoticed.
+func waitForLockWaiters(t *testing.T, fragment string, want int) []int {
 	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		var pid int
-		err := pool.QueryRow(context.Background(), `
-			SELECT pid FROM pg_stat_activity
-			WHERE state = 'active' AND wait_event_type = 'Lock' AND query LIKE $1
-			LIMIT 1`, "%"+fragment+"%").Scan(&pid)
-		if err == nil {
-			return pid
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
+	ctx, cancel := context.WithTimeout(t.Context(), lockWaitDeadline)
+	defer cancel()
+
+	const query = `SELECT pid FROM pg_stat_activity
+		WHERE datname = current_database()
+		  AND state = 'active'
+		  AND wait_event_type = 'Lock'
+		  AND query LIKE $1`
+
+	maxSeen := 0
+	for {
+		rows, err := observer(t).Query(ctx, query, "%"+fragment+"%")
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("the observation could not be made within %s for %q: %v", lockWaitDeadline, fragment, err)
+			}
 			t.Fatalf("inspecting server activity failed: %v", err)
 		}
-		time.Sleep(20 * time.Millisecond)
+		current := map[int]struct{}{}
+		for rows.Next() {
+			var pid int
+			if err := rows.Scan(&pid); err != nil {
+				rows.Close()
+				t.Fatalf("reading a waiting backend failed: %v", err)
+			}
+			current[pid] = struct{}{}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("the observation could not be made within %s for %q: %v", lockWaitDeadline, fragment, err)
+			}
+			t.Fatalf("inspecting server activity failed: %v", err)
+		}
+
+		if len(current) > maxSeen {
+			maxSeen = len(current)
+		}
+		switch {
+		case len(current) == want:
+			waiting := make([]int, 0, want)
+			for pid := range current {
+				waiting = append(waiting, pid)
+			}
+			return waiting
+		case len(current) > want:
+			t.Fatalf("%d distinct backends wait on a statement matching %q, want %d", len(current), fragment, want)
+		}
+
+		select {
+		case <-ctx.Done():
+			t.Fatalf("%d distinct PID(s) observed of the %d expected waiting on a statement matching %q",
+				maxSeen, want, fragment)
+		case <-time.After(lockProbeInterval):
+		}
 	}
-	t.Fatalf("no backend ever waited on a lock for a statement matching %q", fragment)
-	return 0
+}
+
+// waitForLockWait is the single-waiter case.
+func waitForLockWait(t *testing.T, fragment string) int {
+	t.Helper()
+	return waitForLockWaiters(t, fragment, 1)[0]
 }
 
 func deadlines(t *testing.T, pool *pgxpool.Pool, id session.ID) (active, idle, absolute time.Time) {

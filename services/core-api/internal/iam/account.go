@@ -79,3 +79,20 @@ type Account struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
+
+// IdentityID identifies one login identity row. It is not the account, and
+// changing an address never changes the account it reaches.
+type IdentityID uuid.UUID
+
+// NewIdentityID draws an identifier from the package's CSPRNG-backed generator.
+func NewIdentityID() (IdentityID, error) {
+	value, err := uuid.NewRandom()
+	if err != nil {
+		return IdentityID{}, fmt.Errorf("%w: no identity identifier could be drawn", ErrInvalid)
+	}
+	return IdentityID(value), nil
+}
+
+func (i IdentityID) String() string { return uuid.UUID(i).String() }
+
+func (i IdentityID) IsZero() bool { return uuid.UUID(i) == uuid.Nil }

@@ -122,3 +122,18 @@ func (o Origin) Matches(raw string) bool {
 	}
 	return candidate.value == o.value
 }
+
+// VerificationPath is where the public application serves the page that
+// completes an address verification. It is this product's own routing, not a
+// deployment value.
+const VerificationPath = "/verify-email"
+
+// VerificationLink puts the token in the fragment, which RFC 3986 section 3.5
+// separates before the reference is dereferenced: it reaches no request line, no
+// access record and no proxy. The issued alphabet needs no escaping there.
+func (o Origin) VerificationLink(token string) string {
+	if o.IsZero() || token == "" {
+		return ""
+	}
+	return o.value + VerificationPath + "#token=" + token
+}

@@ -201,7 +201,7 @@ func TestCreationWaitsForAnUncommittedSuspension(t *testing.T) {
 
 	// The server itself reports the creation blocked on a lock. If it never does,
 	// the test fails rather than concluding from an elapsed delay.
-	pid := waitForLockWait(t, pool, "kind, status FROM accounts")
+	pid := waitForLockWait(t, "kind, status FROM accounts")
 	if pid == 0 {
 		t.Fatal("no waiting backend was identified")
 	}

@@ -38,9 +38,9 @@ func (s *Store) CreateAccount(ctx context.Context, in NewAccount, now time.Time)
 	if err != nil {
 		return iam.Account{}, err
 	}
-	identityID, err := uuid.NewRandom()
+	identityID, err := iam.NewIdentityID()
 	if err != nil {
-		return iam.Account{}, fmt.Errorf("%w: no identity identifier could be drawn", iam.ErrInvalid)
+		return iam.Account{}, err
 	}
 
 	created := now.UTC()
@@ -50,41 +50,53 @@ func (s *Store) CreateAccount(ctx context.Context, in NewAccount, now time.Time)
 	}
 
 	err = s.inTx(ctx, func(tx pgx.Tx) error {
-		const insertAccount = `INSERT INTO accounts (id, kind, status, display_name, created_at, updated_at)
-			VALUES ($1, $2, $3, NULLIF($4, ''), $5, $5)`
-		if _, err := tx.Exec(ctx, insertAccount, uuid.UUID(id), string(in.Kind), string(in.Status), in.DisplayName, created); err != nil {
-			return classify(err)
-		}
-
-		const insertIdentity = `INSERT INTO account_email_identities (id, account_id, address, created_at)
-			VALUES ($1, $2, $3, $4)`
-		if _, err := tx.Exec(ctx, insertIdentity, identityID, uuid.UUID(id), in.Email.Reveal(), created); err != nil {
-			return classify(err)
-		}
-
-		if !in.Password.IsZero() {
-			const insertCredential = `INSERT INTO account_password_credentials (account_id, encoded_hash, created_at, updated_at)
-				VALUES ($1, $2, $3, $3)`
-			if _, err := tx.Exec(ctx, insertCredential, uuid.UUID(id), in.Password.Reveal(), created); err != nil {
-				return classify(err)
-			}
-			if err := record(ctx, tx, "credential_created", uuid.UUID(id), nil, created); err != nil {
-				return err
-			}
-		}
-
-		for _, role := range in.Roles {
-			const insertGrant = `INSERT INTO account_role_grants (account_id, role, granted_at) VALUES ($1, $2, $3)`
-			if _, err := tx.Exec(ctx, insertGrant, uuid.UUID(id), string(role), created); err != nil {
-				return classify(err)
-			}
-		}
-		return nil
+		return insertAccount(ctx, tx, account, identityID, in.Email, in.Password, in.Roles)
 	})
 	if err != nil {
 		return iam.Account{}, err
 	}
 	return account, nil
+}
+
+// insertAccount writes the account, its login identity, its credential and its
+// grants. It takes the transaction so that a registration can add its own writes
+// to the same commit rather than repeat these.
+func insertAccount(ctx context.Context, tx pgx.Tx, account iam.Account, identity iam.IdentityID,
+	email iam.EmailAddress, encoded password.Encoded, roles []iam.Role) error {
+	const insertAccountRow = `INSERT INTO accounts (id, kind, status, display_name, created_at, updated_at)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $5)`
+	if _, err := tx.Exec(ctx, insertAccountRow, uuid.UUID(account.ID), string(account.Kind), string(account.Status),
+		account.DisplayName, account.CreatedAt); err != nil {
+		return classify(err)
+	}
+
+	const insertIdentity = `INSERT INTO account_email_identities (id, account_id, address, created_at)
+		VALUES ($1, $2, $3, $4)`
+	if _, err := tx.Exec(ctx, insertIdentity, uuid.UUID(identity), uuid.UUID(account.ID),
+		email.Reveal(), account.CreatedAt); err != nil {
+		// Only the address rule may be raced on by a registration; every other
+		// uniqueness rule stays an ordinary conflict.
+		return classifyIdentity(err)
+	}
+
+	if !encoded.IsZero() {
+		const insertCredential = `INSERT INTO account_password_credentials (account_id, encoded_hash, created_at, updated_at)
+			VALUES ($1, $2, $3, $3)`
+		if _, err := tx.Exec(ctx, insertCredential, uuid.UUID(account.ID), encoded.Reveal(), account.CreatedAt); err != nil {
+			return classify(err)
+		}
+		if err := record(ctx, tx, "credential_created", uuid.UUID(account.ID), nil, account.CreatedAt); err != nil {
+			return err
+		}
+	}
+
+	for _, role := range roles {
+		const insertGrant = `INSERT INTO account_role_grants (account_id, role, granted_at) VALUES ($1, $2, $3)`
+		if _, err := tx.Exec(ctx, insertGrant, uuid.UUID(account.ID), string(role), account.CreatedAt); err != nil {
+			return classify(err)
+		}
+	}
+	return nil
 }
 
 // Suspend stops every session of the account taking effect, without rewriting

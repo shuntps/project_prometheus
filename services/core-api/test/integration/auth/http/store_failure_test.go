@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/emailverification"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
@@ -25,6 +26,9 @@ type faultyStore struct {
 	replace    func() error
 	revoke     func() error
 	activity   func() error
+	register   func() error
+	reissue    func() error
+	consume    func() error
 }
 
 // driverDetail stands in for what a driver error could carry. Scans decode the
@@ -74,6 +78,36 @@ func (f *faultyStore) RevokeSession(ctx context.Context, id session.ID, now time
 		}
 	}
 	return f.inner.RevokeSession(ctx, id, now)
+}
+
+func (f *faultyStore) Register(ctx context.Context, email iam.EmailAddress, encoded password.Encoded,
+	lifetimes emailverification.Lifetimes, now time.Time) (bool, error) {
+	if f.register != nil {
+		if err := f.register(); err != nil {
+			return false, err
+		}
+	}
+	return f.inner.Register(ctx, email, encoded, lifetimes, now)
+}
+
+func (f *faultyStore) Reissue(ctx context.Context, email iam.EmailAddress,
+	lifetimes emailverification.Lifetimes, now time.Time) error {
+	if f.reissue != nil {
+		if err := f.reissue(); err != nil {
+			return err
+		}
+	}
+	return f.inner.Reissue(ctx, email, lifetimes, now)
+}
+
+func (f *faultyStore) ConsumeVerification(ctx context.Context, fingerprint emailverification.Fingerprint,
+	now time.Time) (bool, error) {
+	if f.consume != nil {
+		if err := f.consume(); err != nil {
+			return false, err
+		}
+	}
+	return f.inner.ConsumeVerification(ctx, fingerprint, now)
 }
 
 // storeFailure is what the adapter reports when the driver fails: the sentinel,

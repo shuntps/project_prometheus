@@ -23,6 +23,26 @@ x-core-api-environment: &core-api-environment
   AUTH_RATE_LIMIT_IDENTITY_ATTEMPTS: "5"
   AUTH_RATE_LIMIT_WINDOW: 15m
   AUTH_RATE_LIMIT_CAPACITY: "65536"
+  # Public registration, carried by the local collector. The sender address is
+  # synthetic: .invalid is reserved for names that are plainly not resolvable.
+  EMAIL_TRANSPORT: smtp_development
+  EMAIL_SMTP_ADDRESS: mailpit:1025
+  EMAIL_FROM_ADDRESS: no-reply@example.invalid
+  EMAIL_VERIFICATION_LIFETIME: 8h
+  EMAIL_VERIFICATION_RESEND_INTERVAL: 1m
+  REGISTRATION_RATE_LIMIT_CLIENT_ATTEMPTS: "5"
+  REGISTRATION_RATE_LIMIT_IDENTITY_ATTEMPTS: "3"
+  REGISTRATION_RATE_LIMIT_WINDOW: 1h
+  REGISTRATION_RATE_LIMIT_CAPACITY: "65536"
+  EMAIL_VERIFICATION_RATE_LIMIT_CLIENT_ATTEMPTS: "20"
+  EMAIL_VERIFICATION_RATE_LIMIT_WINDOW: 15m
+  EMAIL_VERIFICATION_RATE_LIMIT_CAPACITY: "65536"
+  EMAIL_DELIVERY_INTERVAL: 5s
+  EMAIL_DELIVERY_BATCH: "16"
+  EMAIL_DELIVERY_MAX_ATTEMPTS: "5"
+  EMAIL_DELIVERY_LEASE: 2m
+  EMAIL_DELIVERY_SEND_TIMEOUT: 30s
+  EMAIL_DELIVERY_BACKOFF: 30s
 
 services:
   postgres:
@@ -42,6 +62,24 @@ services:
       retries: 30
       start_period: 5s
     stop_grace_period: 10s
+
+  # A local collector, so a verification message can be read without any provider
+  # existing. It accepts everything and delivers nothing beyond this machine.
+  mailpit:
+    image: axllent/mailpit:v1.31.0@sha256:c96991d9bef73594c246d89ca81411d4e916f03e76a7d2d72fa2ab5dd3c9ce24
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    # Loopback only: the collector holds every message the stack produces.
+    ports:
+      - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    stop_grace_period: 5s
 
   # One-shot. Schema change stays a deliberate step and never runs inside the API.
   migrate:
@@ -63,6 +101,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/readyz"]
       interval: 3s

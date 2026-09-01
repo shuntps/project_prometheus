@@ -31,10 +31,11 @@ func TestAPermissionNobodyHoldsIsRefused(t *testing.T) {
 func TestAViewerDoesNotReceiveCreatorOrOperatorPermissions(t *testing.T) {
 	viewer := principal(t, iam.KindViewer, iam.SurfacePublic, iam.RoleViewer)
 
-	if err := iam.Authorize(viewer, iam.PermissionStreamWatch); err != nil {
+	if err := iam.Authorize(viewer, iam.PermissionOwnSessionRenew); err != nil {
 		t.Fatalf("a viewer was refused its own permission: %v", err)
 	}
 	for _, denied := range []iam.Permission{
+		iam.PermissionStreamWatch,
 		iam.PermissionStreamBroadcast,
 		iam.PermissionSupportTicketRead,
 		iam.PermissionModerationCaseRead,
@@ -109,26 +110,55 @@ func TestAnOperatorRoleIsUselessOnThePublicSurface(t *testing.T) {
 }
 
 func TestZeroAndUnknownValuesAreRefused(t *testing.T) {
+	// Every case that names a status, a surface or a role carries a usable
+	// identity, so the refusal it requires can only come from the rule it names.
+	// A zero identity would refuse them all before any of those rules is reached.
+	held, err := iam.NewAccountID()
+	if err != nil {
+		t.Fatalf("drawing an account identifier failed: %v", err)
+	}
+
 	cases := map[string]struct {
 		principal  iam.Principal
 		permission iam.Permission
 	}{
 		"no permission named": {principal(t, iam.KindViewer, iam.SurfacePublic, iam.RoleViewer), ""},
-		"no roles at all":     {principal(t, iam.KindViewer, iam.SurfacePublic), iam.PermissionStreamWatch},
-		"unknown role":        {principal(t, iam.KindViewer, iam.SurfacePublic, iam.Role("administrator")), iam.PermissionStreamWatch},
-		"empty role":          {principal(t, iam.KindViewer, iam.SurfacePublic, iam.Role("")), iam.PermissionStreamWatch},
-		"unknown surface":     {iam.Principal{Kind: iam.KindViewer, Status: iam.StatusActive, Surface: "edge", Roles: []iam.Role{iam.RoleViewer}}, iam.PermissionStreamWatch},
-		"empty surface":       {iam.Principal{Status: iam.StatusActive, Roles: []iam.Role{iam.RoleViewer}}, iam.PermissionStreamWatch},
-		"zero principal":      {iam.Principal{}, iam.PermissionStreamWatch},
-		"pending account":     {iam.Principal{Kind: iam.KindViewer, Status: iam.StatusPending, Surface: iam.SurfacePublic, Roles: []iam.Role{iam.RoleViewer}}, iam.PermissionStreamWatch},
-		"suspended account":   {iam.Principal{Kind: iam.KindViewer, Status: iam.StatusSuspended, Surface: iam.SurfacePublic, Roles: []iam.Role{iam.RoleViewer}}, iam.PermissionStreamWatch},
-		"closed account":      {iam.Principal{Kind: iam.KindViewer, Status: iam.StatusClosed, Surface: iam.SurfacePublic, Roles: []iam.Role{iam.RoleViewer}}, iam.PermissionStreamWatch},
-		"unknown status":      {iam.Principal{Kind: iam.KindViewer, Status: iam.Status("enabled"), Surface: iam.SurfacePublic, Roles: []iam.Role{iam.RoleViewer}}, iam.PermissionStreamWatch},
+		"no roles at all":     {principal(t, iam.KindViewer, iam.SurfacePublic), iam.PermissionOwnSessionRenew},
+		"unknown role":        {principal(t, iam.KindViewer, iam.SurfacePublic, iam.Role("administrator")), iam.PermissionOwnSessionRenew},
+		"empty role":          {principal(t, iam.KindViewer, iam.SurfacePublic, iam.Role("")), iam.PermissionOwnSessionRenew},
+		"unknown surface":     {iam.Principal{Account: held, Kind: iam.KindViewer, Status: iam.StatusActive, Surface: "edge", Roles: []iam.Role{iam.RoleViewer}}, iam.PermissionOwnSessionRenew},
+		"empty surface":       {iam.Principal{Account: held, Kind: iam.KindViewer, Status: iam.StatusActive, Roles: []iam.Role{iam.RoleViewer}}, iam.PermissionOwnSessionRenew},
+		"zero principal":      {iam.Principal{}, iam.PermissionOwnSessionRenew},
+		"pending account":     {iam.Principal{Account: held, Kind: iam.KindViewer, Status: iam.StatusPending, Surface: iam.SurfacePublic, Roles: []iam.Role{iam.RoleViewer}}, iam.PermissionOwnSessionRenew},
+		"suspended account":   {iam.Principal{Account: held, Kind: iam.KindViewer, Status: iam.StatusSuspended, Surface: iam.SurfacePublic, Roles: []iam.Role{iam.RoleViewer}}, iam.PermissionOwnSessionRenew},
+		"closed account":      {iam.Principal{Account: held, Kind: iam.KindViewer, Status: iam.StatusClosed, Surface: iam.SurfacePublic, Roles: []iam.Role{iam.RoleViewer}}, iam.PermissionOwnSessionRenew},
+		"unknown status":      {iam.Principal{Account: held, Kind: iam.KindViewer, Status: iam.Status("enabled"), Surface: iam.SurfacePublic, Roles: []iam.Role{iam.RoleViewer}}, iam.PermissionOwnSessionRenew},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			if err := iam.Authorize(c.principal, c.permission); !errors.Is(err, iam.ErrDenied) {
 				t.Fatalf("got %v, want a refusal", err)
+			}
+		})
+	}
+}
+
+// TestNoRoleCarriesStreamWatch is the boundary between proving control of a
+// mailbox and reaching adult content. Until an age-assurance model exists, the
+// permission is carried by nobody, whatever kind, surface or role is held.
+func TestNoRoleCarriesStreamWatch(t *testing.T) {
+	cases := map[string]iam.Principal{
+		"viewer holding viewer":             principal(t, iam.KindViewer, iam.SurfacePublic, iam.RoleViewer),
+		"creator holding viewer":            principal(t, iam.KindCreator, iam.SurfacePublic, iam.RoleViewer),
+		"creator holding creator":           principal(t, iam.KindCreator, iam.SurfacePublic, iam.RoleCreator),
+		"creator holding both public roles": principal(t, iam.KindCreator, iam.SurfacePublic, iam.RoleViewer, iam.RoleCreator),
+		"operator holding every operator role": principal(t, iam.KindOperator, iam.SurfaceOperator,
+			iam.RoleOperatorSupport, iam.RoleOperatorModeration, iam.RoleOperatorCompliance, iam.RoleOperatorFinance),
+	}
+	for name, p := range cases {
+		t.Run(name, func(t *testing.T) {
+			if err := iam.Authorize(p, iam.PermissionStreamWatch); !errors.Is(err, iam.ErrDenied) {
+				t.Fatalf("stream:watch was granted: %v", err)
 			}
 		})
 	}

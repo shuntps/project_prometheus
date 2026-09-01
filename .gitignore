@@ -106,6 +106,9 @@ next-env.d.ts
 *.test
 *.out
 /bin/
+# The Go service builds into its own bin/, which the rule above does not reach:
+# that one is anchored to the repository root.
+/services/core-api/bin/
 /tmp/
 vendor/
 go.work

@@ -1,6 +1,7 @@
 COMPOSE_FILE := compose.dev.yaml
 COMPOSE := docker compose -f $(COMPOSE_FILE)
 WEB_PORT ?= 3000
+MAILPIT_PORT ?= 8025
 PSQL := psql --no-psqlrc -v ON_ERROR_STOP=1 -U core_api -d core_api
 DEV_CHECK_SCRIPT := scripts/dev/check-stack.mjs
 
@@ -24,11 +25,13 @@ help:
 	@echo "  make dev-down     stop the stack, keeping the database volume"
 	@echo "  make dev-logs     follow the logs"
 	@echo "  make dev-ps       show the state of each service"
-	@echo "  make dev-check    assert postgres, migrations, readiness, web and the /api rewrite"
+	@echo "  make dev-check    assert postgres, the collector, migrations, readiness, web,"
+	@echo "                    the /api rewrite and one registration reaching the collector"
 	@echo "  make dev-migrate  run the migrations again, from the running sources"
 	@echo "  make dev-db       open psql inside postgres"
 	@echo
 	@echo "  the web application is served on http://localhost:$(WEB_PORT)"
+	@echo "  the collected mail is served on http://localhost:$(MAILPIT_PORT)"
 
 dev-doctor:
 	@docker version --format 'docker {{.Server.Version}}' || { echo "docker is not available"; exit 1; }
@@ -60,6 +63,7 @@ dev-ps:
 # Every assertion runs inside a container and fails the target on its own.
 dev-check:
 	@$(COMPOSE) exec -T postgres pg_isready -U core_api -d core_api
+	@$(COMPOSE) exec -T mailpit /mailpit readyz && echo "mailpit is ready"
 	@$(COMPOSE) exec -T postgres $(PSQL) -Atc \
 		"SELECT 'migrations reconciled: ' || (1 / (count(*) = $(EXPECTED_MIGRATIONS) \
 		 AND max(version) = $(EXPECTED_MIGRATIONS))::int * $(EXPECTED_MIGRATIONS)) FROM schema_migrations"

@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/emailverification"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/browser"
@@ -38,10 +39,13 @@ const (
 	publicOrigin  = "https://app.example.com"
 	foreignOrigin = "https://attacker.example"
 	// A password comfortably above the adopted single-factor minimum.
-	probePassword  = "correct-horse-battery-staple-42"
-	sessionRoute   = "/api/v1/auth/session"
-	broadcastRoute = "/api/v1/auth/broadcast-access"
-	activityRoute  = "/api/v1/auth/session/activity"
+	probePassword     = "correct-horse-battery-staple-42"
+	sessionRoute      = "/api/v1/auth/session"
+	registrationRoute = "/api/v1/auth/registration"
+	verificationRoute = "/api/v1/auth/email-verification"
+	resendRoute       = "/api/v1/auth/email-verification/resend"
+	broadcastRoute    = "/api/v1/auth/broadcast-access"
+	activityRoute     = "/api/v1/auth/session/activity"
 )
 
 var (
@@ -90,6 +94,11 @@ type authConfig struct {
 	lifetimes session.Lifetimes
 	now       func() time.Time
 	global    ratelimit.Policy
+	// registrationLimiter and verificationLimiter bound the registration surface.
+	// They are separate instances, so no journey consumes another's quota.
+	registrationLimiter auth.AttemptLimiter
+	verificationLimiter auth.ClientLimiter
+	challenges          emailverification.Lifetimes
 }
 
 type testClock struct {
@@ -155,10 +164,11 @@ func newSurface(t *testing.T, tune ...func(*authConfig)) *surface {
 	// cfg gathers what a test may tune before the use cases are built, so the
 	// wiring below stays the production one.
 	cfg := authConfig{
-		hasher:    hasher,
-		lifetimes: session.Lifetimes{Absolute: 12 * time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute},
-		now:       clock.Now,
-		global:    httpfixture.DirectPolicy(100_000),
+		hasher:     hasher,
+		lifetimes:  session.Lifetimes{Absolute: 12 * time.Hour, Idle: 30 * time.Minute, ActivityInterval: time.Minute},
+		now:        clock.Now,
+		global:     httpfixture.DirectPolicy(100_000),
+		challenges: emailverification.Lifetimes{Lifetime: 8 * time.Hour, ResendInterval: time.Minute},
 	}
 	for _, apply := range tune {
 		apply(&cfg)
@@ -169,6 +179,22 @@ func newSurface(t *testing.T, tune ...func(*authConfig)) *surface {
 			t.Fatalf("building the limiter failed: %v", err)
 		}
 		cfg.limiter = limiter
+	}
+	if cfg.registrationLimiter == nil {
+		limiter, err := ratelimit.NewAuthLimiter(limits)
+		if err != nil {
+			t.Fatalf("building the registration limiter failed: %v", err)
+		}
+		cfg.registrationLimiter = limiter
+	}
+	if cfg.verificationLimiter == nil {
+		limiter, err := ratelimit.NewClientLimiter(ratelimit.ClientPolicy{
+			Attempts: 1_000, Window: 15 * time.Minute, Capacity: ratelimit.MinAuthCapacity,
+		})
+		if err != nil {
+			t.Fatalf("building the verification limiter failed: %v", err)
+		}
+		cfg.verificationLimiter = limiter
 	}
 	repository, err := authstore.NewRepository(store)
 	if err != nil {
@@ -189,11 +215,28 @@ func newSurface(t *testing.T, tune ...func(*authConfig)) *surface {
 		t.Fatalf("building the session use cases failed: %v", err)
 	}
 
+	registrations, err := auth.NewRegistrations(auth.RegistrationOptions{
+		Repository: faults, Hasher: cfg.hasher, Limiter: cfg.registrationLimiter,
+		Lifetimes: cfg.challenges, Now: cfg.now,
+	})
+	if err != nil {
+		t.Fatalf("building the registration use case failed: %v", err)
+	}
+	verifications, err := auth.NewVerifications(auth.VerificationOptions{
+		Repository: faults, Limiter: cfg.verificationLimiter, Now: cfg.now,
+	})
+	if err != nil {
+		t.Fatalf("building the verification use case failed: %v", err)
+	}
+
 	logs := &bytes.Buffer{}
 	opts := httpapi.Options{
 		Logger:    slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		RateLimit: cfg.global,
-		Auth:      &authapi.Options{SignIn: signIn, Sessions: sessions, Origin: origin},
+		Auth: &authapi.Options{
+			SignIn: signIn, Sessions: sessions, Origin: origin,
+			Registrations: registrations, Verifications: verifications,
+		},
 	}
 
 	app := httpfixture.MustApp(t, &opts)
