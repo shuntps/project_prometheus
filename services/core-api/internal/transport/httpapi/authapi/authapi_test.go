@@ -31,7 +31,7 @@ func (inert) ResolveSession(context.Context, session.Token, time.Time) (auth.Res
 	return auth.Resolved{}, false, errNotReached
 }
 
-func (inert) ReplaceSession(context.Context, *session.ID, session.Session, time.Time) (auth.Resolved, bool, error) {
+func (inert) ReplaceSession(context.Context, *session.ID, session.Session, password.Revision, time.Time) (auth.Resolved, bool, error) {
 	return auth.Resolved{}, false, errNotReached
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
@@ -59,7 +60,7 @@ func TestActivityIsCappedByTheAbsoluteDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
-	if _, err := store.ReplaceSession(context.Background(), nil, sess, now); err != nil {
+	if _, err := store.ReplaceSession(context.Background(), nil, sess, password.FirstRevision, now); err != nil {
 		t.Fatalf("creating the session failed: %v", err)
 	}
 	_, _, absoluteBefore := deadlines(t, pool, sess.ID)
@@ -184,7 +185,7 @@ func TestActivityCannotReviveOrOutliveTheAccountsAuthority(t *testing.T) {
 			if err != nil {
 				t.Fatalf("issuing failed: %v", err)
 			}
-			if _, err := store.ReplaceSession(context.Background(), &sess.ID, successor, now); err != nil {
+			if _, err := store.ReplaceSession(context.Background(), &sess.ID, successor, password.FirstRevision, now); err != nil {
 				t.Fatalf("replacing failed: %v", err)
 			}
 		},

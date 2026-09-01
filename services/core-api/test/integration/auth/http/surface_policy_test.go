@@ -183,7 +183,7 @@ func (inertRepository) ResolveSession(context.Context, session.Token, time.Time)
 	return auth.Resolved{}, false, errUnexpectedRepositoryCall
 }
 
-func (inertRepository) ReplaceSession(context.Context, *session.ID, session.Session, time.Time) (auth.Resolved, bool, error) {
+func (inertRepository) ReplaceSession(context.Context, *session.ID, session.Session, password.Revision, time.Time) (auth.Resolved, bool, error) {
 	return auth.Resolved{}, false, errUnexpectedRepositoryCall
 }
 

@@ -65,6 +65,9 @@ type repository struct {
 	replaceErr    error
 	replaceCalls  int
 	replacedAfter *session.ID
+	// replacedOn is the credential revision the replacement was handed, so a use
+	// case passing a constant instead of what it verified is visible here.
+	replacedOn password.Revision
 
 	revokeFound bool
 	revokeErr   error
@@ -86,9 +89,11 @@ func (r *repository) ResolveSession(context.Context, session.Token, time.Time) (
 	return r.resolved, r.resolveFound, r.resolveErr
 }
 
-func (r *repository) ReplaceSession(_ context.Context, previous *session.ID, _ session.Session, _ time.Time) (auth.Resolved, bool, error) {
+func (r *repository) ReplaceSession(_ context.Context, previous *session.ID, _ session.Session,
+	expected password.Revision, _ time.Time) (auth.Resolved, bool, error) {
 	r.replaceCalls++
 	r.replacedAfter = previous
+	r.replacedOn = expected
 	return r.replaced, r.replaceFound, r.replaceErr
 }
 

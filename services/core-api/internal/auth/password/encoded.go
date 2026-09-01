@@ -18,6 +18,16 @@ type Encoded struct {
 // NewEncoded wraps a representation read back from storage.
 func NewEncoded(raw string) Encoded { return Encoded{value: raw} }
 
+// Revision counts how many times the stored credential has been written. It
+// advances on every replacement, so a decision taken on one representation can
+// be refused once another has taken its place.
+type Revision int64
+
+// FirstRevision is what a credential carries when it is first written.
+const FirstRevision Revision = 1
+
+func (r Revision) IsZero() bool { return r == 0 }
+
 // Reveal returns the representation. Only the store that persists it calls this;
 // verification reads the value inside this package.
 func (e Encoded) Reveal() string { return e.value }

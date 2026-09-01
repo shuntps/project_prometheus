@@ -173,10 +173,16 @@ func refreshRegistration(ctx context.Context, tx pgx.Tx, identity iam.IdentityID
 	}
 
 	if !encoded.IsZero() {
-		const upsert = `INSERT INTO account_password_credentials (account_id, encoded_hash, created_at, updated_at)
-			VALUES ($1, $2, $3, $3)
-			ON CONFLICT (account_id) DO UPDATE SET encoded_hash = EXCLUDED.encoded_hash, updated_at = EXCLUDED.updated_at`
-		if _, err := tx.Exec(ctx, upsert, uuid.UUID(account), encoded.Reveal(), at); err != nil {
+		// Same rule as SetPassword: stated on insert, advanced from the stored value
+		// on conflict, never from EXCLUDED.
+		const upsert = `INSERT INTO account_password_credentials
+				(account_id, encoded_hash, revision, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $4)
+			ON CONFLICT (account_id) DO UPDATE
+				SET encoded_hash = EXCLUDED.encoded_hash,
+					updated_at   = EXCLUDED.updated_at,
+					revision     = account_password_credentials.revision + 1`
+		if _, err := tx.Exec(ctx, upsert, uuid.UUID(account), encoded.Reveal(), password.FirstRevision, at); err != nil {
 			return classify(err)
 		}
 		if err := record(ctx, tx, "credential_changed", uuid.UUID(account), nil, at); err != nil {

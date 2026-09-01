@@ -19,6 +19,9 @@ type Credential struct {
 	Kind     iam.Kind
 	Status   iam.Status
 	Password password.Encoded
+	// Revision is the stored credential this decision was taken on. It travels to
+	// the replacement below, which refuses a session built on a superseded one.
+	Revision password.Revision
 }
 
 // PasswordVerifier is the credential check. Hashing is required too: the decoy is
@@ -39,7 +42,8 @@ type AttemptLimiter interface {
 type SignInRepository interface {
 	CredentialByEmail(ctx context.Context, email iam.EmailAddress) (Credential, bool, error)
 	ResolveSession(ctx context.Context, token session.Token, now time.Time) (Resolved, bool, error)
-	ReplaceSession(ctx context.Context, previous *session.ID, successor session.Session, now time.Time) (Resolved, bool, error)
+	ReplaceSession(ctx context.Context, previous *session.ID, successor session.Session,
+		expected password.Revision, now time.Time) (Resolved, bool, error)
 }
 
 // SignInRequest carries what the transport already extracted. It holds no header,
@@ -182,7 +186,9 @@ func (s *SignIn) Execute(ctx context.Context, req SignInRequest) (SignInResult, 
 	if err != nil {
 		return SignInResult{}, ErrUnavailable
 	}
-	resolved, replaced, err := s.repository.ReplaceSession(ctx, previous, successor, now)
+	// The revision verified above is a precondition: a credential replaced since
+	// then refuses this session rather than letting the old password open one.
+	resolved, replaced, err := s.repository.ReplaceSession(ctx, previous, successor, credential.Revision, now)
 	switch {
 	case err != nil:
 		return SignInResult{}, ErrUnavailable

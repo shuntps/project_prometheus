@@ -16,10 +16,16 @@ import (
 func (s *Store) SetPassword(ctx context.Context, account iam.AccountID, encoded password.Encoded, now time.Time) error {
 	changed := now.UTC()
 	return s.inTx(ctx, func(tx pgx.Tx) error {
-		const upsert = `INSERT INTO account_password_credentials (account_id, encoded_hash, created_at, updated_at)
-			VALUES ($1, $2, $3, $3)
-			ON CONFLICT (account_id) DO UPDATE SET encoded_hash = EXCLUDED.encoded_hash, updated_at = EXCLUDED.updated_at`
-		tag, err := tx.Exec(ctx, upsert, uuid.UUID(account), encoded.Reveal(), changed)
+		// The revision is stated on the way in and advanced from the stored value on
+		// the way through, never from EXCLUDED, which carries the new row's own.
+		const upsert = `INSERT INTO account_password_credentials
+				(account_id, encoded_hash, revision, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $4)
+			ON CONFLICT (account_id) DO UPDATE
+				SET encoded_hash = EXCLUDED.encoded_hash,
+					updated_at   = EXCLUDED.updated_at,
+					revision     = account_password_credentials.revision + 1`
+		tag, err := tx.Exec(ctx, upsert, uuid.UUID(account), encoded.Reveal(), password.FirstRevision, changed)
 		if err != nil {
 			return classify(err)
 		}
@@ -49,6 +55,7 @@ type Credential struct {
 	Kind     iam.Kind
 	Status   iam.Status
 	Password password.Encoded
+	Revision password.Revision
 }
 
 // CredentialByEmail reads the credential registered for a login address. Keeping
@@ -57,19 +64,20 @@ func (s *Store) CredentialByEmail(ctx context.Context, email iam.EmailAddress) (
 	if email.IsZero() {
 		return Credential{}, ErrNotFound
 	}
-	const query = `SELECT a.id, a.kind, a.status, c.encoded_hash
+	const query = `SELECT a.id, a.kind, a.status, c.encoded_hash, c.revision
 		FROM account_email_identities e
 		JOIN accounts a ON a.id = e.account_id
 		JOIN account_password_credentials c ON c.account_id = a.id
 		WHERE e.address = $1`
 
 	var (
-		id      uuid.UUID
-		rawKind string
-		status  string
-		encoded string
+		id       uuid.UUID
+		rawKind  string
+		status   string
+		encoded  string
+		revision password.Revision
 	)
-	if err := s.pool.QueryRow(ctx, query, email.Reveal()).Scan(&id, &rawKind, &status, &encoded); err != nil {
+	if err := s.pool.QueryRow(ctx, query, email.Reveal()).Scan(&id, &rawKind, &status, &encoded, &revision); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Credential{}, ErrNotFound
 		}
@@ -84,5 +92,6 @@ func (s *Store) CredentialByEmail(ctx context.Context, email iam.EmailAddress) (
 		Kind:     kind,
 		Status:   iam.Status(status),
 		Password: password.NewEncoded(encoded),
+		Revision: revision,
 	}, nil
 }
