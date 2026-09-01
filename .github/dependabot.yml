@@ -39,6 +39,15 @@ updates:
         update-types:
           - minor
           - patch
+    # Two majors the installed lint chain cannot load. Each is named on its own,
+    # so every other update and every other major still reaches us.
+    ignore:
+      - dependency-name: eslint
+        versions:
+          - "10.x"
+      - dependency-name: typescript
+        versions:
+          - "7.x"
 
   - package-ecosystem: docker
     directory: /apps/web
