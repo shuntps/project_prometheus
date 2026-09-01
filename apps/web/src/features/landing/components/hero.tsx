@@ -1,4 +1,4 @@
-import { Button, ButtonLink } from "@/components/ui/button";
+import { ButtonLink } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Container } from "@/components/ui/container";
 import { Surface } from "@/components/ui/surface";
@@ -18,9 +18,13 @@ export function Hero() {
             </h1>
             <p className="mt-6 max-w-prose text-lg text-on-surface-variant">{hero.body}</p>
             <div className="mt-10 flex flex-wrap items-center gap-4">
-              <Button disabled aria-describedby="primary-action-note">
-                {hero.primaryAction}
-              </Button>
+              <ButtonLink
+                href={hero.primaryAction.href}
+                variant="primary"
+                aria-describedby="primary-action-note"
+              >
+                {hero.primaryAction.label}
+              </ButtonLink>
               <ButtonLink href={hero.secondaryAction.href}>{hero.secondaryAction.label}</ButtonLink>
             </div>
             <p id="primary-action-note" className="mt-4 text-sm text-on-surface-variant">

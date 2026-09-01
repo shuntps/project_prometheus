@@ -12,8 +12,9 @@ export const landingContent = {
     eyebrow: "In development",
     heading: "A place for creators and the communities around them.",
     body: "Creators broadcast to a room of their own. Their audience finds them, follows them and takes part while the room is live.",
-    primaryAction: "Create an account",
-    primaryActionNote: "Account creation is not open yet.",
+    primaryAction: { label: "Create an account", href: "/register" },
+    primaryActionNote:
+      "An account can be created now. None of what is described here is available to it yet.",
     secondaryAction: { label: "What the platform does", href: "#platform" },
   },
   sections: [
@@ -50,7 +51,7 @@ export const landingContent = {
   ],
   closing: {
     heading: "The features described here are not available yet.",
-    body: "This page describes what is being built. It carries no account creation and no input field.",
+    body: "This page describes what is being built. An account can be created and its address confirmed; nothing above is open to it.",
   },
   footer: {
     note: "This page is part of a platform under development.",

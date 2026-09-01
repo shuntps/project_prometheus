@@ -11,10 +11,11 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm run test:unit && pnpm run test:policy && pnpm run test:e2e",
+    "test": "pnpm run test:unit && pnpm run test:policy && pnpm run test:e2e && pnpm run test:e2e:dev",
     "test:unit": "vitest run --dir tests/unit",
     "test:policy": "vitest run --dir tests/policy",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:dev": "playwright test --config playwright.dev.config.ts"
   },
   "dependencies": {
     "next": "16.3.3",

@@ -16,6 +16,8 @@ export const sessionContent = {
     password: "Password",
     submit: "Sign in",
     submitting: "Signing in…",
+    registerPrompt: "No account yet?",
+    register: "Create an account",
     errors: {
       invalid: "Check the address and the password, then try again.",
       rejected: "The credentials were not accepted.",

@@ -1,10 +1,10 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
+import { requestsTo } from "../support/recording";
 import {
   csrfToken,
   installSessionBackend,
-  requestsTo,
   sessionPath,
   type SessionBackend,
 } from "../support/session-backend";

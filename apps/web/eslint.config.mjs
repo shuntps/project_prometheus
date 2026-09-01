@@ -3,8 +3,9 @@ import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
 /*
-  Imports point one way: app → features → components/ui → config. A layer never
-  reaches back up, so a future domain cannot quietly couple itself to this one.
+  Imports point one way: app → features → components/ui → config, and protocol
+  is a leaf every layer may read. A layer never reaches back up, so a future
+  domain cannot quietly couple itself to this one.
 */
 const upward = (groups, message) => ({
   "no-restricted-imports": ["error", { patterns: [{ group: groups, message }] }],
@@ -40,6 +41,25 @@ const eslintConfig = defineConfig([
         "react-dom/**",
       ],
       "Configuration carries no user interface.",
+    ),
+  },
+  {
+    files: ["src/protocol/**"],
+    rules: upward(
+      [
+        "@/components/**",
+        "@/features/**",
+        "@/app/**",
+        "@/config/**",
+        "**/components/**",
+        "**/features/**",
+        "**/app/**",
+        "**/config/**",
+        "react",
+        "react-dom",
+        "react-dom/**",
+      ],
+      "A protocol detail belongs to no feature, no route and no framework.",
     ),
   },
 ]);
