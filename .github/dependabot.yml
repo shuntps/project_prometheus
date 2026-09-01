@@ -40,7 +40,8 @@ updates:
           - minor
           - patch
     # Two majors the installed lint chain cannot load. Each is named on its own,
-    # so every other update and every other major still reaches us.
+    # so every other update and every other major still reaches us. The types
+    # entry is held until the runtime moves with it, and lifts by hand, not itself.
     ignore:
       - dependency-name: eslint
         versions:
@@ -48,6 +49,9 @@ updates:
       - dependency-name: typescript
         versions:
           - "7.x"
+      - dependency-name: "@types/node"
+        versions:
+          - "26.x"
 
   - package-ecosystem: docker
     directory: /apps/web
@@ -59,6 +63,12 @@ updates:
         update-types:
           - minor
           - patch
+    # Held until the runtime, the image bootstrap and the types move together,
+    # after Node 26 reaches long-term support. Lifting it is a manual step.
+    ignore:
+      - dependency-name: node
+        versions:
+          - "26.x"
 
   - package-ecosystem: github-actions
     directory: /
