@@ -9,13 +9,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
 
 // ReplaceSession ends the presented session and creates its replacement in one
 // transaction. The predecessor may belong to another account, and may be absent.
-func (s *Store) ReplaceSession(ctx context.Context, previous *session.ID, successor session.Session, now time.Time) (Resolved, error) {
+func (s *Store) ReplaceSession(ctx context.Context, previous *session.ID, successor session.Session,
+	expected password.Revision, now time.Time) (Resolved, error) {
 	replaced := now.UTC()
 	var resolved Resolved
 
@@ -32,6 +34,22 @@ func (s *Store) ReplaceSession(ctx context.Context, previous *session.ID, succes
 		// The surface is bound to the kind by insertSession below, which validates
 		// the record against the kind read inside this same locked transaction.
 		principal.Surface = successor.Surface
+
+		// The credential is read under a lock and compared to the one the caller
+		// verified. A replacement committed since then refuses this session rather
+		// than letting a password already superseded open one.
+		const lockCredential = `SELECT revision FROM account_password_credentials
+			WHERE account_id = $1 FOR SHARE`
+		var stored password.Revision
+		switch err := tx.QueryRow(ctx, lockCredential, uuid.UUID(successor.Account)).Scan(&stored); {
+		case errors.Is(err, pgx.ErrNoRows):
+			return ErrNotFound
+		case err != nil:
+			return ErrStore
+		}
+		if stored != expected {
+			return ErrNotFound
+		}
 
 		if previous != nil {
 			const revoke = `UPDATE account_sessions SET revoked_at = $2

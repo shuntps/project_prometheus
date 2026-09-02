@@ -20,8 +20,13 @@ func usableCredential(t *testing.T) auth.Credential {
 	return auth.Credential{
 		Account: account, Kind: iam.KindViewer, Status: iam.StatusActive,
 		Password: password.NewEncoded("real-hash"),
+		Revision: fixtureRevision,
 	}
 }
+
+// fixtureRevision is neither zero nor the first revision, so a replacement handed
+// a constant instead of what was verified cannot match it by chance.
+const fixtureRevision password.Revision = 7
 
 func newSignIn(t *testing.T, repo *repository, h *hasher, l *limiter) *auth.SignIn {
 	t.Helper()
@@ -109,6 +114,37 @@ func TestAnAbsenceIsNotAFailure(t *testing.T) {
 	}
 	if failed.Outcome == auth.OutcomeRejected {
 		t.Fatal("a failure was reported as a verdict on the credentials")
+	}
+}
+
+// TestTheVerifiedRevisionReachesTheReplacement keeps the precondition tied to the
+// credential this sign-in actually verified, rather than to any constant.
+func TestTheVerifiedRevisionReachesTheReplacement(t *testing.T) {
+	credential := usableCredential(t)
+	repo := &repository{
+		credential: credential, credentialFound: true,
+		replaced: auth.Resolved{
+			Principal: iam.Principal{Account: credential.Account, Kind: iam.KindViewer},
+		},
+		replaceFound: true,
+	}
+	result, err := newSignIn(t, repo, &hasher{}, &limiter{allow: true}).
+		Execute(context.Background(), auth.SignInRequest{Email: "a@example.com", Password: "secret"})
+	if err != nil {
+		t.Fatalf("the sign-in failed: %v", err)
+	}
+	if result.Outcome != auth.OutcomeSucceeded {
+		t.Fatalf("outcome %d, want OutcomeSucceeded", result.Outcome)
+	}
+	if repo.credentialCalls != 1 || repo.replaceCalls != 1 {
+		t.Fatalf("%d lookup(s) and %d replacement(s), want one of each",
+			repo.credentialCalls, repo.replaceCalls)
+	}
+	// Exactly what the lookup returned. Zero, the first revision or any other
+	// constant would leave the replacement deciding on something else.
+	if repo.replacedOn != credential.Revision {
+		t.Errorf("the replacement was handed revision %d, want the verified %d",
+			repo.replacedOn, credential.Revision)
 	}
 }
 

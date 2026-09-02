@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
@@ -225,7 +226,7 @@ func TestASurfaceIsAlwaysBoundToTheAccountKindAtEveryBoundary(t *testing.T) {
 	}
 	handmade := mustSession(t, viewer.ID, now)
 	handmade.Surface = iam.SurfaceOperator
-	if _, err := store.ReplaceSession(context.Background(), nil, handmade, handmade.CreatedAt); err == nil {
+	if _, err := store.ReplaceSession(context.Background(), nil, handmade, password.FirstRevision, handmade.CreatedAt); err == nil {
 		t.Error("the store accepted an operator session for a viewer account")
 	}
 
@@ -291,7 +292,7 @@ func TestNoWritePathStoresAnInvalidSessionRecord(t *testing.T) {
 		t.Run("creation refuses "+name, func(t *testing.T) {
 			sess := mustSession(t, account.ID, now)
 			tamper(&sess)
-			if _, err := store.ReplaceSession(context.Background(), nil, sess, sess.CreatedAt); err == nil {
+			if _, err := store.ReplaceSession(context.Background(), nil, sess, password.FirstRevision, sess.CreatedAt); err == nil {
 				t.Fatal("the record was stored")
 			}
 			assertNoSuccessorStored(t, pool, sess.ID)

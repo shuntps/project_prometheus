@@ -59,8 +59,9 @@ func (r Repository) ResolveSession(ctx context.Context, token session.Token, now
 	}
 }
 
-func (r Repository) ReplaceSession(ctx context.Context, previous *session.ID, successor session.Session, now time.Time) (auth.Resolved, bool, error) {
-	resolved, err := r.store.ReplaceSession(ctx, previous, successor, now)
+func (r Repository) ReplaceSession(ctx context.Context, previous *session.ID, successor session.Session,
+	expected password.Revision, now time.Time) (auth.Resolved, bool, error) {
+	resolved, err := r.store.ReplaceSession(ctx, previous, successor, expected, now)
 	switch {
 	case err == nil:
 		return auth.Resolved(resolved), true, nil

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth"
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
 )
@@ -54,7 +55,7 @@ func TestTheAdapterNeverReportsAFailureAsAnAbsence(t *testing.T) {
 		assertFailure(t, found, err)
 	})
 	t.Run("replacement", func(t *testing.T) {
-		_, found, err := repository.ReplaceSession(context.Background(), nil, mustSession(t, account, now), now)
+		_, found, err := repository.ReplaceSession(context.Background(), nil, mustSession(t, account, now), password.FirstRevision, now)
 		assertFailure(t, found, err)
 	})
 	t.Run("revocation", func(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
@@ -31,7 +32,7 @@ func TestConcurrentSessionWorkStaysConsistent(t *testing.T) {
 				errs <- err
 				return
 			}
-			if _, err := store.ReplaceSession(context.Background(), nil, sess, sess.CreatedAt); err != nil {
+			if _, err := store.ReplaceSession(context.Background(), nil, sess, password.FirstRevision, sess.CreatedAt); err != nil {
 				errs <- err
 				return
 			}

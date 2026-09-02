@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
@@ -85,7 +86,7 @@ func TestAnAccountSuspendedAfterItsCredentialWasReadCreatesNoSession(t *testing.
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
-	if _, err := store.ReplaceSession(context.Background(), nil, successor, now); !errors.Is(err, authstore.ErrNotFound) {
+	if _, err := store.ReplaceSession(context.Background(), nil, successor, password.FirstRevision, now); !errors.Is(err, authstore.ErrNotFound) {
 		t.Fatalf("the replacement returned %v, want the unusable-record answer", err)
 	}
 	// The refusal is the same shape any unusable account produces, so a caller
@@ -131,7 +132,7 @@ func TestCreationAndSuspensionSerialiseIntoAValidOrder(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, createErr = store.ReplaceSession(context.Background(), nil, successor, now)
+			_, createErr = store.ReplaceSession(context.Background(), nil, successor, password.FirstRevision, now)
 		}()
 		go func() {
 			defer wg.Done()
@@ -195,7 +196,7 @@ func TestCreationWaitsForAnUncommittedSuspension(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := store.ReplaceSession(ctx, nil, successor, now)
+		_, err := store.ReplaceSession(ctx, nil, successor, password.FirstRevision, now)
 		done <- err
 	}()
 

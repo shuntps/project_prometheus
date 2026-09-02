@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/persistence/postgres/authstore"
 )
@@ -34,7 +35,7 @@ func TestActivityAndReplacementDoNotDeadlockInEitherOrder(t *testing.T) {
 
 		replacement := make(chan error, 1)
 		go func() {
-			_, err := store.ReplaceSession(ctx, &sess.ID, successor, now.Add(10*time.Minute))
+			_, err := store.ReplaceSession(ctx, &sess.ID, successor, password.FirstRevision, now.Add(10*time.Minute))
 			replacement <- err
 		}()
 		replacementPID := waitForLockWait(t, authorityFragment)
@@ -72,7 +73,7 @@ func TestActivityAndReplacementDoNotDeadlockInEitherOrder(t *testing.T) {
 
 		replacement := make(chan error, 1)
 		go func() {
-			_, err := store.ReplaceSession(ctx, &sess.ID, successor, now.Add(10*time.Minute))
+			_, err := store.ReplaceSession(ctx, &sess.ID, successor, password.FirstRevision, now.Add(10*time.Minute))
 			replacement <- err
 		}()
 		replacementPID := waitForLockWait(t, revocationFragment)

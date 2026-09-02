@@ -80,9 +80,11 @@ func insertAccount(ctx context.Context, tx pgx.Tx, account iam.Account, identity
 	}
 
 	if !encoded.IsZero() {
-		const insertCredential = `INSERT INTO account_password_credentials (account_id, encoded_hash, created_at, updated_at)
-			VALUES ($1, $2, $3, $3)`
-		if _, err := tx.Exec(ctx, insertCredential, uuid.UUID(account.ID), encoded.Reveal(), account.CreatedAt); err != nil {
+		const insertCredential = `INSERT INTO account_password_credentials
+				(account_id, encoded_hash, revision, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $4)`
+		if _, err := tx.Exec(ctx, insertCredential, uuid.UUID(account.ID), encoded.Reveal(),
+			password.FirstRevision, account.CreatedAt); err != nil {
 			return classify(err)
 		}
 		if err := record(ctx, tx, "credential_created", uuid.UUID(account.ID), nil, account.CreatedAt); err != nil {

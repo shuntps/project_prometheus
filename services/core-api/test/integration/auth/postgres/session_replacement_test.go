@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/password"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/auth/session"
 	"github.com/shuntps/project_prometheus/services/core-api/internal/iam"
 )
@@ -59,7 +60,7 @@ func TestAFailedReplacementRollsBackInsidePostgreSQL(t *testing.T) {
 			if err != nil {
 				t.Fatalf("issuing the successor failed: %v", err)
 			}
-			if _, err := store.ReplaceSession(context.Background(), &predecessor.ID, successor, now); err == nil {
+			if _, err := store.ReplaceSession(context.Background(), &predecessor.ID, successor, password.FirstRevision, now); err == nil {
 				t.Fatal("the replacement reported success despite the injected fault")
 			}
 

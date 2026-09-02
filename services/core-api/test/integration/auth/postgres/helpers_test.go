@@ -193,7 +193,7 @@ func openSession(t *testing.T, store *authstore.Store, account iam.AccountID, su
 	if err != nil {
 		t.Fatalf("issuing failed: %v", err)
 	}
-	if _, err := store.ReplaceSession(context.Background(), nil, sess, sess.CreatedAt); err != nil {
+	if _, err := store.ReplaceSession(context.Background(), nil, sess, password.FirstRevision, sess.CreatedAt); err != nil {
 		t.Fatalf("storing the session failed: %v", err)
 	}
 	return sess, token

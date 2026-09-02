@@ -44,13 +44,14 @@ func (f *faultyStore) CredentialByEmail(ctx context.Context, email iam.EmailAddr
 	return f.inner.CredentialByEmail(ctx, email)
 }
 
-func (f *faultyStore) ReplaceSession(ctx context.Context, previous *session.ID, successor session.Session, now time.Time) (auth.Resolved, bool, error) {
+func (f *faultyStore) ReplaceSession(ctx context.Context, previous *session.ID, successor session.Session,
+	expected password.Revision, now time.Time) (auth.Resolved, bool, error) {
 	if f.replace != nil {
 		if err := f.replace(); err != nil {
 			return auth.Resolved{}, false, err
 		}
 	}
-	return f.inner.ReplaceSession(ctx, previous, successor, now)
+	return f.inner.ReplaceSession(ctx, previous, successor, expected, now)
 }
 
 func (f *faultyStore) ResolveSession(ctx context.Context, token session.Token, now time.Time) (auth.Resolved, bool, error) {

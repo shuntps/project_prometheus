@@ -47,7 +47,7 @@ type stubRepository struct{}
 func (stubRepository) CredentialByEmail(context.Context, iam.EmailAddress) (Credential, bool, error) {
 	return Credential{}, false, nil
 }
-func (stubRepository) ReplaceSession(context.Context, *session.ID, session.Session, time.Time) (Resolved, bool, error) {
+func (stubRepository) ReplaceSession(context.Context, *session.ID, session.Session, password.Revision, time.Time) (Resolved, bool, error) {
 	return Resolved{}, false, nil
 }
 func (stubRepository) ResolveSession(context.Context, session.Token, time.Time) (Resolved, bool, error) {
@@ -110,7 +110,7 @@ func (r *countingRepository) ResolveSession(context.Context, session.Token, time
 	return Resolved{}, false, nil
 }
 
-func (r *countingRepository) ReplaceSession(context.Context, *session.ID, session.Session, time.Time) (Resolved, bool, error) {
+func (r *countingRepository) ReplaceSession(context.Context, *session.ID, session.Session, password.Revision, time.Time) (Resolved, bool, error) {
 	r.replacements++
 	return Resolved{}, true, nil
 }
